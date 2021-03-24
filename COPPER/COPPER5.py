@@ -1,4 +1,4 @@
-#COPPER model for Canada's electricity system, national and provincial scale.
+#COPPER model for Canada electricity system, national and provincial scale.
 #Written by Reza Arjmand, Ph.D candidate at UVic.
 #Version 5.0 Jan 2021 New input data
 
@@ -24,11 +24,14 @@ test=False
 hydro_development=False
 autrarky=False
 pump_continous=True
-emission_limit=True
+emission_limit=False
 emission_limit_ref_year=2017
 local_gas_price=True
-OBPS_on=False
+OBPS_on=True
 SMR_CCS=True
+GPS=True
+
+CPO=True
 ##### Reading the configuration excel sheet #####
 
 
@@ -147,6 +150,10 @@ fuelprice=dict(zip(list(gendata.iloc[:]['Type']),list(gendata.iloc[:]['fuelprice
 
 capitalcost=dict(zip(list(gendata.iloc[:]['Type']),list(gendata.iloc[:]['capitalcost'])))#dict(capital_cost.values) 
 
+
+if GPS:
+    capitalcost['peaker']=1000000000 
+    capitalcost['coal']=1000000000
 
 for k in capitalcost:
     capitalcost[k]=capitalcost[k]/cap_cost_alter
@@ -454,6 +461,8 @@ for AP in ap:
                 extant_thermal[PD+'.'+AP+'.'+ABA+'.'+TP]=0
                 if PD+'.'+AP+'.'+ABA+'.'+TP in extant_capacity:
                     extant_thermal[PD+'.'+AP+'.'+ABA+'.'+TP]=extant_capacity[PD+'.'+AP+'.'+ABA+'.'+TP]
+                if CPO and TP=='coal' and int(PD)>=2030:
+                    extant_thermal[PD+'.'+AP+'.'+ABA+'.'+TP]=0
 #for GL in gl:
 #    for TP in tplants:
 #        for EXG in extant_generation:
@@ -1113,6 +1122,7 @@ Solving process time: {round((end-start)/60)} Min and {round((end-start)%60)} Se
 
 #         supminusdem[H]=production[ABA+'.'+str(H)]-totdemand[ABA+'.'+str(H)]
 
+coordinate = pd.read_excel(r'coordinate.xlsx')
 
 ############Saving resaults in .csv files################
 folder_name='outputs'+'_ct'+str(ctax)+'_rd'+str(len(rundays))+'_pds'+str(len(pds))
@@ -1150,6 +1160,12 @@ if SMR_CCS:
    folder_name+='_SMR_CCS' 
 else:
     folder_name+='_NoSMR_CCS'   
+
+if CPO:
+   folder_name+='_CPO'
+
+if GPS:
+   folder_name+='_GPS'   
        
 cwd = os.getcwd()
 if not os.path.exists(folder_name): 
@@ -1312,25 +1328,16 @@ with open('COPPER config.txt', 'w') as f:
     
     sys.stdout = original_stdout # Reset the standard output to its original value
 
-#model.ror_renewal_binary.pprint()
-#model.day_renewal_binary.pprint()
-#model.month_renewal_binary.pprint()
-#model.pumphydro.pprint()
 
 ############# Analyze the results ##################
-coordinate = pd.read_excel(r'coordinate.xlsx')
 
-cwd = os.getcwd()
-#if recon:
-#    folder_name = 'outputs' + '_fy' + str(foryear) + '_ct' + str(ctax) + '_rd' + str(rundaynum) + '_sr' + str(
-#        sample_rate) + '_recon'
-#else:
-#    folder_name = 'outputs' + '_fy' + str(foryear) + '_ct' + str(ctax) + '_rd' + str(rundaynum) + '_sr' + str(
-#        sample_rate)
+#os.chdir('C://Users/SESIT Group/Desktop/Google Drive/PhD/Thesis/COPPER Paper/Results/OBS-GSP-CPO')
 
-os.chdir(folder_name)
+os.chdir(outputdir)
 
 capacity_thermal = pd.read_csv(r'capacity_thermal.csv', header=None)
+
+capacity_storage = pd.read_csv(r'capacity_storage.csv', header=None)
 
 retire_thermal = pd.read_csv(r'retire_thermal.csv', header=None)
 
@@ -1357,294 +1364,247 @@ monthstoragehydroout = pd.read_csv(r'monthstoragehydroout.csv', header=None)
 transmission = pd.read_csv(r'transmission.csv', header=None)
 
 capacity_transmission = pd.read_csv(r'capacity_transmission.csv', header=None)
+if hydro_development:
+    ror_renewal_binary = pd.read_csv(r'ror_renewal_binary.csv', header=None)
 
-ror_renewal_binary = pd.read_csv(r'ror_renewal_binary.csv', header=None)
+    day_renewal_binary = pd.read_csv(r'day_renewal_binary.csv', header=None)
 
-day_renewal_binary = pd.read_csv(r'day_renewal_binary.csv', header=None)
+    month_renewal_binary = pd.read_csv(r'month_renewal_binary.csv', header=None)
 
-month_renewal_binary = pd.read_csv(r'month_renewal_binary.csv', header=None)
+    #    pumphydro = pd.read_csv(r'pumphydro.csv', header=None)
 
-pumphydro = pd.read_csv(r'pumphydro.csv', header=None)
+    dayrenewalout = pd.read_csv(r'dayrenewalout.csv', header=None)
 
-dayrenewalout = pd.read_csv(r'dayrenewalout.csv', header=None)
-
-monthrenewalout = pd.read_csv(r'monthrenewalout.csv', header=None)
+    monthrenewalout = pd.read_csv(r'monthrenewalout.csv', header=None)
 
 obj = pd.read_csv(r'obj_value.csv', header=None)
 
-if recon:
-    capacity_wind_recon = pd.read_csv(r'capacity_wind_recon.csv', header=None)
-    capacity_solar_recon = pd.read_csv(r'capacity_solar_recon.csv', header=None)
+capacity_wind_recon = pd.read_csv(r'capacity_wind_recon.csv', header=None)
+capacity_solar_recon = pd.read_csv(r'capacity_solar_recon.csv', header=None)
 
 ######### Whole country Generation outline ##########
 tp_num = len(tplants)
-Canada_gen_outline = dict()
-capcitytherm = list(capacity_thermal.iloc[:, 2])
-retiretherm = list(retire_thermal.iloc[:, 2])
-Total_installed = dict()
-Total_retired = dict()
+Canada_gen_outline = np.zeros((len(pds), len(allplants)))
+capcitytherm = list(capacity_thermal.iloc[:, 3])
+retiretherm = list(retire_thermal.iloc[:, 3])
+Total_installed = np.zeros((len(pds), len(allplants)))
+Total_retired = np.zeros((len(pds), len(tplants)))
 Total_installed_hydro_aba = dict()
-Total_recon_installed = dict()
-Total_generation_ABA = dict()
-Total_installed_ABA = dict()
-for ALP in allplants:
-    Canada_gen_outline[ALP] = 0
-    Total_installed[ALP] = 0
-    if ALP != 'wind' and ALP != 'solar' and ALP != 'hydro':
-        Total_retired[ALP] = 0
-    else:
-        Total_recon_installed[ALP] = 0
-    for ABA in aba:
-        Total_generation_ABA[ABA + '.' + ALP] = 0
-        Total_installed_ABA[ABA + '.' + ALP] = 0
+# Total_recon_installed=dict()
+Total_generation_ABA = np.zeros((len(pds) * len(aba), len(allplants)))
+Total_installed_ABA = np.zeros((len(aba), len(allplants)))
+for PD in pds:
+    for ALP in allplants:
 
-        if ALP != 'wind' and ALP != 'solar' and ALP != 'hydro':
+        for ABA in aba:
             index_aba = aba.index(ABA)
-            index_tp = tplants.index(ALP)
-            Canada_gen_outline[ALP] = Canada_gen_outline[ALP] + extant_thermal[ABA + '.' + ALP] + capcitytherm[
-                index_aba * tp_num + index_tp] - retiretherm[index_aba * tp_num + index_tp]
-            Total_installed[ALP] += capcitytherm[index_aba * tp_num + index_tp]
-            Total_retired[ALP] += retiretherm[index_aba * tp_num + index_tp]
-            Total_generation_ABA[ABA + '.' + ALP] += extant_thermal[ABA + '.' + ALP] + capcitytherm[
-                index_aba * tp_num + index_tp] - retiretherm[index_aba * tp_num + index_tp]
-            Total_installed_ABA[ABA + '.' + ALP] += capcitytherm[index_aba * tp_num + index_tp]
-        elif ALP == 'hydro':
-            Total_generation_ABA[ABA + '.' + ALP + '.ror'] = 0
-            Total_generation_ABA[ABA + '.' + ALP + '.day'] = 0
-            Total_generation_ABA[ABA + '.' + ALP + '.month'] = 0
-            Total_installed_hydro_aba[ABA + '.ror'] = 0
-            Total_installed_hydro_aba[ABA + '.day'] = 0
-            Total_installed_hydro_aba[ABA + '.month'] = 0
-            Canada_gen_outline[ALP] = Canada_gen_outline[ALP] + ror_hydro_capacity[ABA] + day_hydro_capacity[ABA] + \
-                                      month_hydro_capacity[ABA]
-            Total_generation_ABA[ABA + '.' + ALP + '.ror'] += ror_hydro_capacity[ABA]
-            Total_generation_ABA[ABA + '.' + ALP + '.day'] += day_hydro_capacity[ABA]
-            Total_generation_ABA[ABA + '.' + ALP + '.month'] += month_hydro_capacity[ABA]
 
-            for HR_ROR in hr_ror:
-                if ABA == location_renewal[HR_ROR]:
-                    index_rn = hr_ror.index(HR_ROR)
-                    Canada_gen_outline[ALP] = Canada_gen_outline[ALP] + ror_renewal_binary.iloc[index_rn][1] * \
-                                              capacity_renewal[HR_ROR]
-                    Total_installed[ALP] += ror_renewal_binary.iloc[index_rn][1] * capacity_renewal[HR_ROR]
-                    Total_installed_hydro_aba[ABA + '.ror'] += ror_renewal_binary.iloc[index_rn][1] * capacity_renewal[
-                        HR_ROR]
-                    Total_generation_ABA[ABA + '.' + ALP + '.ror'] += ror_renewal_binary.iloc[index_rn][1] * \
-                                                                      capacity_renewal[HR_ROR]
+            index_p = allplants.index(ALP)
+            index_pd = pds.index(PD)
 
-                    if 'RC_' in HR_ROR:
-                        Total_recon_installed[ALP] += ror_renewal_binary.iloc[index_rn][1] * capacity_renewal[HR_ROR]
+            if ALP != 'wind' and ALP != 'solar' and ALP != 'hydro':
+                index_tp = tplants.index(ALP)
+                Canada_gen_outline[index_pd, index_p] += extant_thermal[pds[0] + '.' + ABA + '.' + ALP] + sum(
+                    capcitytherm[ii * len(tplants) * len(aba) + index_aba * tp_num + index_tp] - retiretherm[
+                        ii * len(tplants) * len(aba) + index_aba * tp_num + index_tp] for ii in range(index_pd + 1))
+                Total_installed[index_pd, index_p] += capcitytherm[
+                    index_pd * len(tplants) * len(aba) + index_aba * tp_num + index_tp]
+                Total_retired[index_pd, index_tp] += retiretherm[
+                    index_pd * len(tplants) * len(aba) + index_aba * tp_num + index_tp]
+                Total_generation_ABA[len(aba) * index_pd + index_aba, index_p] += extant_thermal[pds[
+                                                                                                     0] + '.' + ABA + '.' + ALP] + sum(
+                    capcitytherm[ii * len(tplants) * len(aba) + index_aba * tp_num + index_tp] - retiretherm[
+                        ii * len(tplants) * len(aba) + index_aba * tp_num + index_tp] for ii in range(index_pd + 1))
+                Total_installed_ABA[index_aba, index_p] += capcitytherm[
+                    index_pd * len(tplants) * len(aba) + index_aba * tp_num + index_tp]
+            elif ALP == 'hydro':
 
-            for HR_DAY in hr_day:
-                if ABA == location_renewal[HR_DAY]:
-                    index_rn = hr_day.index(HR_DAY)
-                    Canada_gen_outline[ALP] = Canada_gen_outline[ALP] + day_renewal_binary.iloc[index_rn][1] * \
-                                              capacity_renewal[HR_DAY]
-                    Total_installed[ALP] += day_renewal_binary.iloc[index_rn][1] * capacity_renewal[HR_DAY]
-                    Total_installed_hydro_aba[ABA + '.day'] += day_renewal_binary.iloc[index_rn][1] * capacity_renewal[
-                        HR_DAY]
-                    Total_generation_ABA[ABA + '.' + ALP + '.day'] += day_renewal_binary.iloc[index_rn][1] * \
-                                                                      capacity_renewal[HR_DAY]
-                    if 'RC_' in HR_DAY:
-                        Total_recon_installed[ALP] += day_renewal_binary.iloc[index_rn][1] * capacity_renewal[HR_DAY]
+                Canada_gen_outline[index_pd, index_p] += ror_hydro_capacity[PD + '.' + ABA] + day_hydro_capacity[
+                    PD + '.' + ABA] + month_hydro_capacity[PD + '.' + ABA]
+                Total_generation_ABA[len(aba) * index_pd + index_aba, index_p] += ror_hydro_capacity[PD + '.' + ABA] + \
+                                                                                  day_hydro_capacity[PD + '.' + ABA] + \
+                                                                                  month_hydro_capacity[PD + '.' + ABA]
+                if hydro_development:
+                    Total_installed_hydro_aba[PD + '.' + ABA + '.ror'] = 0
+                    Total_installed_hydro_aba[PD + '.' + ABA + '.day'] = 0
+                    Total_installed_hydro_aba[PD + '.' + ABA + '.month'] = 0
 
-            for HR_MO in hr_mo:
-                if ABA == location_renewal[HR_MO]:
-                    index_rn = hr_mo.index(HR_MO)
-                    Canada_gen_outline[ALP] = Canada_gen_outline[ALP] + month_renewal_binary.iloc[index_rn][1] * \
-                                              capacity_renewal[HR_MO]
-                    Total_installed[ALP] += month_renewal_binary.iloc[index_rn][1] * capacity_renewal[HR_MO]
-                    Total_installed_hydro_aba[ABA + '.month'] += month_renewal_binary.iloc[index_rn][1] * \
-                                                                 capacity_renewal[HR_MO]
-                    Total_generation_ABA[ABA + '.' + ALP + '.month'] += month_renewal_binary.iloc[index_rn][1] * \
-                                                                        capacity_renewal[HR_MO]
-                    if 'RC_' in HR_MO:
-                        Total_recon_installed[ALP] += month_renewal_binary.iloc[index_rn][1] * capacity_renewal[HR_MO]
+                    for HR_ROR in hr_ror:
+                        if ABA == location_renewal[HR_ROR]:
+                            index_rn = hr_ror.index(HR_ROR)
+                            Canada_gen_outline[index_pd, index_p] += sum(
+                                ror_renewal_binary.iloc[index_rn + ii * len(hr_ror)][2] * capacity_renewal[HR_ROR] for
+                                ii in range(index_pd + 1))
+                            Total_installed[index_pd, index_p] += \
+                            ror_renewal_binary.iloc[index_rn + index_pd * len(hr_ror)][2] * capacity_renewal[HR_ROR]
+                            Total_installed_hydro_aba[PD + '.' + ABA + '.ror'] += \
+                            ror_renewal_binary.iloc[index_rn + index_pd * len(hr_ror)][2] * capacity_renewal[HR_ROR]
+                            Total_generation_ABA[len(aba) * index_pd + index_aba, index_p] += sum(
+                                ror_renewal_binary.iloc[index_rn + ii * len(hr_ror)][2] * capacity_renewal[HR_ROR] for
+                                ii in range(index_pd + 1))
+                            Total_installed_ABA[index_aba, index_p] += \
+                            ror_renewal_binary.iloc[index_rn + index_pd * len(hr_ror)][2] * capacity_renewal[HR_ROR]
+
+                    for HR_DAY in hr_day:
+                        if ABA == location_renewal[HR_DAY]:
+                            index_rn = hr_day.index(HR_DAY)
+                            Canada_gen_outline[index_pd, index_p] += sum(
+                                day_renewal_binary.iloc[index_rn + ii * len(hr_day)][2] * capacity_renewal[HR_DAY] for
+                                ii in range(index_pd + 1))
+                            Total_installed[index_pd, index_p] += \
+                            day_renewal_binary.iloc[index_rn + index_pd * len(hr_day)][2] * capacity_renewal[HR_DAY]
+                            Total_installed_hydro_aba[PD + '.' + ABA + '.day'] += \
+                            day_renewal_binary.iloc[index_rn + index_pd * len(hr_day)][2] * capacity_renewal[HR_DAY]
+                            Total_generation_ABA[len(aba) * index_pd + index_aba, index_p] += sum(
+                                day_renewal_binary.iloc[index_rn + ii * len(hr_day)][2] * capacity_renewal[HR_DAY] for
+                                ii in range(index_pd + 1))
+                            Total_installed_ABA[index_aba, index_p] += \
+                            day_renewal_binary.iloc[index_rn + index_pd * len(hr_day)][2] * capacity_renewal[HR_DAY]
+
+                    for HR_MO in hr_mo:
+                        if ABA == location_renewal[HR_MO]:
+                            index_rn = hr_mo.index(HR_MO)
+                            Canada_gen_outline[index_pd, index_p] += sum(
+                                month_renewal_binary.iloc[index_rn + ii * len(hr_mo)][2] * capacity_renewal[HR_MO] for
+                                ii in range(index_pd + 1))
+                            Total_installed[index_pd, index_p] += \
+                            month_renewal_binary.iloc[index_rn + index_pd * len(hr_mo)][2] * capacity_renewal[HR_MO]
+                            Total_installed_hydro_aba[PD + '.' + ABA + '.month'] += \
+                            month_renewal_binary.iloc[index_rn + index_pd * len(hr_mo)][2] * capacity_renewal[HR_MO]
+                            Total_generation_ABA[len(aba) * index_pd + index_aba, index_p] += sum(
+                                month_renewal_binary.iloc[index_rn + ii * len(hr_mo)][2] * capacity_renewal[HR_MO] for
+                                ii in range(index_pd + 1))
+                            Total_installed_ABA[index_aba, index_p] += \
+                            month_renewal_binary.iloc[index_rn + index_pd * len(hr_mo)][2] * capacity_renewal[HR_MO]
 
 
-        elif ALP == 'wind' or ALP == 'solar':
-            #            if ALP=='wind':
-            #                Total_generation_ABA[ABA+'.'+ALP]=0
-            #
-            #            if ALP=='solar':
-            #                Total_generation_ABA[ABA+'.'+ALP]=0
 
-            for GL in gl:
-                if map_gl_to_ba[GL] == ABA and str(GL) + '.' + ALP in extant_wind_solar:
-                    Canada_gen_outline[ALP] = Canada_gen_outline[ALP] + extant_wind_solar[str(GL) + '.' + ALP]
-                    Total_generation_ABA[ABA + '.' + ALP] += extant_wind_solar[str(GL) + '.' + ALP]
-                if map_gl_to_ba[GL] == ABA and ALP == 'wind':
-                    Canada_gen_outline[ALP] = Canada_gen_outline[ALP] + capacity_wind.iloc[int(GL) - 1][1]
-                    Total_installed[ALP] += capacity_wind.iloc[int(GL) - 1][1]
-                    Total_generation_ABA[ABA + '.' + ALP] += capacity_wind.iloc[int(GL) - 1][1]
-                    if recon:
-                        Total_installed[ALP] += capacity_wind_recon.iloc[int(GL) - 1][1]
-                        Total_generation_ABA[ABA + '.' + ALP] += capacity_wind_recon.iloc[int(GL) - 1][1]
-                        Total_recon_installed[ALP] += capacity_wind_recon.iloc[int(GL) - 1][1]
-                        Canada_gen_outline[ALP] += capacity_wind_recon.iloc[int(GL) - 1][1]
+            elif ALP == 'wind' or ALP == 'solar':
 
-                if map_gl_to_ba[GL] == ABA and ALP == 'solar':
-                    Canada_gen_outline[ALP] = Canada_gen_outline[ALP] + capacity_solar.iloc[int(GL) - 1][1]
-                    Total_installed[ALP] += capacity_solar.iloc[int(GL) - 1][1]
-                    Total_generation_ABA[ABA + '.' + ALP] += capacity_solar.iloc[int(GL) - 1][1]
-                    if recon:
-                        Total_installed[ALP] += capacity_solar_recon.iloc[int(GL) - 1][1]
-                        Total_generation_ABA[ABA + '.' + ALP] += capacity_solar_recon.iloc[int(GL) - 1][1]
-                        Total_recon_installed[ALP] += capacity_solar_recon.iloc[int(GL) - 1][1]
-                        Canada_gen_outline[ALP] += capacity_solar_recon.iloc[int(GL) - 1][1]
+                for GL in gl:
+                    if map_gl_to_ba[int(GL)] == ABA and str(GL) + '.' + ALP in extant_wind_solar:
+                        Canada_gen_outline[index_pd, index_p] += extant_wind_solar[str(GL) + '.' + ALP]
+                        Total_generation_ABA[len(aba) * index_pd + index_aba, index_p] += extant_wind_solar[
+                            str(GL) + '.' + ALP]
+                    if map_gl_to_ba[int(GL)] == ABA and ALP == 'wind':
+                        Canada_gen_outline[index_pd, index_p] += sum(capacity_wind.iloc[len(gl) * ii + int(GL) - 1][2] +
+                                                                     capacity_wind_recon.iloc[
+                                                                         len(gl) * ii + int(GL) - 1][2] for ii in
+                                                                     range(index_pd + 1))
+                        Total_installed[index_pd, index_p] += capacity_wind.iloc[len(gl) * index_pd + int(GL) - 1][2] + \
+                                                              capacity_wind_recon.iloc[
+                                                                  len(gl) * index_pd + int(GL) - 1][2]
+                        Total_generation_ABA[len(aba) * index_pd + index_aba, index_p] += \
+                        capacity_wind.iloc[len(gl) * index_pd + int(GL) - 1][2] + \
+                        capacity_wind_recon.iloc[len(gl) * index_pd + int(GL) - 1][2]
+                        Total_installed_ABA[index_aba, index_p] += capacity_wind.iloc[len(gl) * index_pd + int(GL) - 1][
+                                                                       2] + capacity_wind_recon.iloc[
+                                                                       len(gl) * index_pd + int(GL) - 1][2]
 
-Total_installed_wind = 0
-Total_installed_solar = 0
-total_wind_recon = 0
-total_solar_recon = 0
-for GL in gl:
-    Total_installed_wind += capacity_wind.iloc[int(GL) - 1][1]
-    Total_installed_solar += capacity_solar.iloc[int(GL) - 1][1]
-    if recon:
-        total_wind_recon += capacity_wind_recon.iloc[int(GL) - 1][1]
-        total_solar_recon += capacity_solar_recon.iloc[int(GL) - 1][1]
-
-######## sind and solar location(grid cell and coordinate) and capacity #######
-wind_cap = list()
-solar_cap = list()
-lon = list()
-lat = list()
-loc_aba = list()
-gl_loc = list()
-for GL in gl:
-    if capacity_wind.iloc[int(GL) - 1][1] != 0 or capacity_solar.iloc[int(GL) - 1][1] != 0:
-        gl_loc.append(GL)
-        wind_cap.append(capacity_wind.iloc[int(GL) - 1][1])
-        solar_cap.append(capacity_solar.iloc[int(GL) - 1][1])
-        loc_aba.append(map_gl_to_ba[GL])
-        lon.append(coordinate.iloc[GL * 2 - 1]['lon'])
-        lat.append(coordinate.iloc[GL * 2 - 1]['lat'])
-
-Installed_wind_solar_data = pd.DataFrame(np.array([gl_loc, wind_cap, solar_cap, lon, lat, loc_aba]))
+                    if map_gl_to_ba[int(GL)] == ABA and ALP == 'solar':
+                        Canada_gen_outline[index_pd, index_p] += sum(
+                            capacity_solar.iloc[len(gl) * ii + int(GL) - 1][2] +
+                            capacity_solar_recon.iloc[len(gl) * ii + int(GL) - 1][2] for ii in range(index_pd + 1))
+                        Total_installed[index_pd, index_p] += capacity_solar.iloc[len(gl) * index_pd + int(GL) - 1][2] + \
+                                                              capacity_solar_recon.iloc[
+                                                                  len(gl) * index_pd + int(GL) - 1][2]
+                        Total_generation_ABA[len(aba) * index_pd + index_aba, index_p] += \
+                        capacity_solar.iloc[len(gl) * index_pd + int(GL) - 1][2] + \
+                        capacity_solar_recon.iloc[len(gl) * index_pd + int(GL) - 1][2]
+                        Total_installed_ABA[index_aba, index_p] += \
+                        capacity_solar.iloc[len(gl) * index_pd + int(GL) - 1][2] + \
+                        capacity_solar_recon.iloc[len(gl) * index_pd + int(GL) - 1][2]
 
 ##### installed transmission ##########3
-Installed_transmission = dict()
-tr_list = list(capacity_transmission.iloc[:][0])
+Installed_transmission = np.zeros((len(pds), len(transmap)))
+tr_list = list(capacity_transmission.iloc[:][1])
 iter_index = -1
-for TR in tr_list:
-    iter_index += 1
-    for TRM in transmap:
-        if TR + '.' + capacity_transmission.iloc[iter_index][1] in TRM:
-            Installed_transmission[TRM] = capacity_transmission.iloc[iter_index][2]
+for PD in pds:
+
+    for ABA in aba:
+        for ABBA in aba:
+            if ABA + '.' + ABBA in transmap:
+                Installed_transmission[pds.index(PD), transmap.index(ABA + '.' + ABBA)] = capacity_transmission.iloc[
+                    pds.index(PD) * len(aba) * len(aba) + aba.index(ABA) * len(aba) + aba.index(ABBA)][3]
 
 ###### Carbon Emission by BA ######
-# sum(model.supply[H,ABA,TP]*carbondioxide[TP]/1000000 for H in h for TP in tplants for ABA in aba if AP in ABA)<=carbon_limit[AP]
 
-Carbon_ABA = dict()
+carbon_ABA = np.zeros((len(pds), len(aba)))
 hours_list = list(supply.iloc[:][0])
 ba_list = list(supply.iloc[:][1])
 tp_type = list(supply.iloc[:][2])
 prod_power = list(supply.iloc[:][3])
-for ABA in aba:
-    Carbon_ABA[ABA] = 0
-for IND in list(range(len(hours_list))):
-    Carbon_ABA[ba_list[IND]] += prod_power[IND] * carbondioxide[tp_type[IND]] * sample_rate / 1000000
+carbon_national = dict()
+for PD in pds:
+    carbon_national[PD] = 0
+    for H in h:
+        for ABA in aba:
+            for TP in tplants:
+                carbon_ABA[pds.index(PD), aba.index(ABA)] += supply.iloc[pds.index(PD) * len(h) * len(aba) * len(
+                    tplants) + h.index(H) * len(aba) * len(tplants) + aba.index(ABA) * len(tplants) + tplants.index(
+                    TP)][4] * carbondioxide[TP] * 365 / len(run_days) / 1000000
+                carbon_national[PD] += supply.iloc[pds.index(PD) * len(h) * len(aba) * len(tplants) + h.index(H) * len(
+                    aba) * len(tplants) + aba.index(ABA) * len(tplants) + tplants.index(TP)][4] * carbondioxide[
+                                           TP] * 365 / len(run_days) / 1000000
 
-Obj = obj.iloc[0][1] * sample_rate
-os.chdir(cwd)
-del D
-del H
-del I
-del M
-
-
-"""
-import matplotlib.pyplot as plt
-
-
-# Pie chart, where the slices will be ordered and plotted counter-clockwise:
-labels =list(Canada_gen_outline.keys())
-sizes = list(Canada_gen_outline.values())
-explode = (0, 0, 0, 0,0,0,0,0,0)  # only "explode" the 2nd slice (i.e. 'Hogs')
-
-fig1, ax1 = plt.subplots(dpi=800,figsize=(8,8))
-wedges, texts, autotexts=ax1.pie(sizes, explode=explode, labels=labels, autopct='%1.0f%%',
-        shadow=False, startangle=90,pctdistance=0.85,labeldistance=1.07,textprops=dict(color="w"))
-ax1.axis('equal')
-  # Equal aspect ratio ensures that pie is drawn as a circle.
-ax1.legend(wedges,labels,
-    title='Generation types',
-    loc='center left',
-    prop={'size':10},
-    bbox_to_anchor=(1,0,1,1))
-plt.setp(autotexts,size=7, weight="bold")
-ax1.set_title("Canada generation outline")
-plt.show()   
-
-
-fig, ax = plt.subplots(figsize=(12, 12), subplot_kw=dict(aspect="equal"))
-wedges, texts = ax.pie(sizes, wedgeprops=dict(width=0.5), startangle=-40)
-
-bbox_props = dict(boxstyle="square,pad=0.3", fc="w", ec="k", lw=0.72)
-kw = dict(arrowprops=dict(arrowstyle="-"),
-          bbox=bbox_props, zorder=0, va="center")
-
-for i, p in enumerate(wedges):
-    ang = (p.theta2 - p.theta1)/2. + p.theta1
-    y = np.sin(np.deg2rad(ang))
-    x = np.cos(np.deg2rad(ang))
-    horizontalalignment = {-1: "right", 1: "left"}[int(np.sign(x))]
-    connectionstyle = "angle,angleA=0,angleB={}".format(ang)
-    kw["arrowprops"].update({"connectionstyle": connectionstyle})
-    ax.annotate(labels[i], xy=(x, y), xytext=(1.15*np.sign(x), 1.15*y),
-                horizontalalignment=horizontalalignment, **kw)
-
-ax.set_title("Matplotlib bakery: A donut")
-
-plt.show()
-"""
-
-# Provincial generation outline:
+carbon_ap = np.zeros((len(pds), len(ap)))
 for AP in ap:
-    if AP == "Ontario":
-        with open(AP + '_fy' + str(foryear) + '_ct' + str(ctax) + '_rd' + str(rundaynum) + '_sr' + str(
-                sample_rate) + '_recon.csv', 'w') as csv_writer:
-            for ALP in allplants:
-                csv_writer.write("%s,%s\n" % (
-                ALP, Total_generation_ABA['Ontario.a.' + ALP] + Total_generation_ABA['Ontario.b.' + ALP]))
-    elif AP == "Quebec":
-        with open(AP + '_fy' + str(foryear) + '_ct' + str(ctax) + '_rd' + str(rundaynum) + '_sr' + str(
-                sample_rate) + '_recon.csv', 'w') as csv_writer:
-            for ALP in allplants:
-                csv_writer.write("%s,%s\n" % (
-                ALP, Total_generation_ABA['Quebec.a.' + ALP] + Total_generation_ABA['Quebec.b.' + ALP]))
-    elif AP == "Newfoundland and Labrador":
-        with open(AP + '_fy' + str(foryear) + '_ct' + str(ctax) + '_rd' + str(rundaynum) + '_sr' + str(
-                sample_rate) + '_recon.csv', 'w') as csv_writer:
-            for ALP in allplants:
-                csv_writer.write("%s,%s\n" % (ALP, Total_generation_ABA['Newfoundland and Labrador.a.' + ALP] +
-                                              Total_generation_ABA['Newfoundland and Labrador.b.' + ALP]))
-    if not AP == "Ontario" and not AP == "Quebec" and not AP == "Newfoundland and Labrador":
-        with open(AP + '_fy' + str(foryear) + '_ct' + str(ctax) + '_rd' + str(rundaynum) + '_sr' + str(
-                sample_rate) + '_recon.csv', 'w') as csv_writer:
-            for ALP in allplants:
-                csv_writer.write("%s,%s\n" % (ALP, Total_generation_ABA[AP + '.a.' + ALP]))
+    for PD in pds:
+        for ABA in aba:
+            if AP in ABA:
+                carbon_ap[pds.index(PD), ap.index(AP)] += carbon_ABA[pds.index(PD), aba.index(ABA)]
 
-# Federal generation outline
-with open('Canada_outline' + '_fy' + str(foryear) + '_ct' + str(ctax) + '_rd' + str(rundaynum) + '_sr' + str(
-        sample_rate) + '_recon.csv', 'w') as csv_writer:
-    for key in Canada_gen_outline.keys():
-        csv_writer.write("%s,%s\n" % (key, Canada_gen_outline[key]))
+Obj = obj.iloc[0][1] * 365 / len(run_days) / 1000000
 
-# Provincial and Narional carbon emission:
-with open('carbon_emission' + '_fy' + str(foryear) + '_ct' + str(ctax) + '_rd' + str(rundaynum) + '_sr' + str(
-        sample_rate) + '_recon.csv', 'w') as csv_writer:
-    for ABA in aba:
-        if ABA == 'Ontario.a':
-            csv_writer.write("%s,%s\n" % ('Ontario.a', Carbon_ABA['Ontario.a'] + Carbon_ABA['Ontario.b']))
-        elif ABA == 'Quebec.a':
-            csv_writer.write("%s,%s\n" % ('Quebec.a', Carbon_ABA['Quebec.a'] + Carbon_ABA['Quebec.b']))
-        elif ABA == 'Newfoundland and Labrador.a':
-            csv_writer.write("%s,%s\n" % ('Newfoundland and Labrador.a',
-                                          Carbon_ABA['Newfoundland and Labrador.a'] + Carbon_ABA[
-                                              'Newfoundland and Labrador.b']))
-        if not ABA == 'Ontario.a' and not ABA == 'Ontario.b' and not ABA == 'Quebec.a' and not ABA == 'Quebec.b' and not ABA == 'Newfoundland and Labrador.a' and not ABA == 'Newfoundland and Labrador.b':
-            csv_writer.write("%s,%s\n" % (ABA, Carbon_ABA[ABA]))
-    csv_writer.write("%s,%s\n" % ('Canada', sum(Carbon_ABA.values())))
+carbon_ap = carbon_ap.transpose()
+carbon_ABA = carbon_ABA.transpose()
+Canada_gen_outline = Canada_gen_outline.transpose()
+Total_installed = Total_installed.transpose()
+Total_generation_ABA = Total_generation_ABA.transpose()
+
+#carbon_ap.to_excel('carbon_ap', index=True)
+CARBON_AP = pd.DataFrame(carbon_ap, columns = pds, index = ap)
+CARBON_AP.to_excel('carbon_ap.xlsx', index=True)
+#np.savetxt('carbon_ap.csv', carbon_ap, header='2030, 2040, 2050', fmt='%s', delimiter=",", comments="")
+#CARBON_AP = pd.read_csv('carbon_ap.csv', header=True)
+#CARBON_AP.insert(0, 'Provinces', ['British Columbia', "Alberta","Saskatchewan", "Manitoba", "Ontario","Quebec","New Brunswick","Newfoundland and Labrador","Nova Scotia","Prince Edward Island"], True)
+#CARBON_AP.to_excel('carbon_ap.csv')
+
+#carbon_ABA.to_excel('carbon_ABA', index=True)
+#np.savetxt('carbon_ABA.csv', carbon_ABA, delimiter=",")
+#Canada_gen_outline.to_excel('Canada_gen_outline', index=True)
+#np.savetxt('canada_gen_outline.csv', Canada_gen_outline, header='2030, 2040, 2050', fmt='%s', delimiter=",", comments="")
+CANADA_GEN_OUTLINE = pd.DataFrame(Canada_gen_outline, columns = pds, index = gendata.iloc[:]['Type'])
+CANADA_GEN_OUTLINE.to_excel('Canada_gen_outline.xlsx', index=True)
+#Total_installed.to_excel('Total_installed', index=True)
+#np.savetxt('total_installed.csv', Total_installed, delimiter=",")
+#Total_generation_ABA('Total_generation_ABA', index=True)
+#np.savetxt('total_generation_ABA.csv', Total_generation_ABA, header='British Columbia.a, Alberta.a,  Saskatchewan.a, Manitoba.a, Ontario.a,Ontario.b,Quebec.a,Quebec.b, New Brunswick.a, Newfoundland and Labrador.a,Newfoundland and Labrador.b,Nova Scotia.a,Prince Edward Island.a,British Columbia.a, Alberta.a,  Saskatchewan.a, Manitoba.a, Ontario.a,Ontario.b,Quebec.a,Quebec.b, New Brunswick.a, Newfoundland and Labrador.a,Newfoundland and Labrador.b,Nova Scotia.a,Prince Edward Island.a,British Columbia.a, Alberta.a,  Saskatchewan.a, Manitoba.a, Ontario.a,Ontario.b,Quebec.a,Quebec.b, New Brunswick.a, Newfoundland and Labrador.a,Newfoundland and Labrador.b,Nova Scotia.a,Prince Edward Island.a', fmt='%s', delimiter=",")
+
+
+TOTAL_generation_ABA_2030 = pd.DataFrame(Total_generation_ABA[:, [0,1,2,3,4,5,6,7,8,9,10,11,12]], columns = aba, index = gendata.iloc[:]['Type'])
+TOTAL_generation_ABA_2040 = pd.DataFrame(Total_generation_ABA[:, [13,14,15,16,17,18,19,20,21,22,23,24,25]], columns = aba, index = gendata.iloc[:]['Type'])
+TOTAL_generation_ABA_2050 = pd.DataFrame(Total_generation_ABA[:, [26,27,28,29,30,31,32,33,34,35,36,37,38]], columns = aba, index = gendata.iloc[:]['Type'])
+TOTAL_generation_ABA = pd.concat([TOTAL_generation_ABA_2030, TOTAL_generation_ABA_2040, TOTAL_generation_ABA_2050])
+TOTAL_generation_ABA.to_excel('Total_Generation_ABA.xlsx', index=True)
+
+TOTAL_generation_ap = TOTAL_generation_ABA
+TOTAL_generation_ap['Ontario.a'] = TOTAL_generation_ABA['Ontario.a'] + TOTAL_generation_ABA['Ontario.b']
+TOTAL_generation_ap['Quebec.a'] = TOTAL_generation_ABA['Quebec.a'] + TOTAL_generation_ABA['Quebec.b']
+TOTAL_generation_ap['Newfoundland and Labrador.a'] = TOTAL_generation_ABA['Newfoundland and Labrador.a'] + TOTAL_generation_ABA['Newfoundland and Labrador.b']
+
+TOTAL_generation_ap = TOTAL_generation_ap.drop(columns=['Ontario.b', 'Quebec.b', 'Newfoundland and Labrador.b'])
+TOTAL_generation_ap.columns = ap
+
+TOTAL_generation_ap.to_excel('Total_generation_ap.xlsx', index=True)
+
+
+
+#model.ror_renewal_binary.pprint()
+#model.day_renewal_binary.pprint()
+#model.month_renewal_binary.pprint()
+#model.pumphydro.pprint()
+
+
 
 os.chdir(cwd)

@@ -1,0 +1,17 @@
+Planning for the target year 2050 considering 2018 as the reference year
+modeled ['2030', '2040', '2050'] palnning periods and ran 2 representative days in each period
+Carbon price = 100
+reserve margin = 0.15
+pumped hydro retrofit limit = 0.5
+down sampling clustering ? False
+hierarchical clustering ? True
+test run ? True
+hydro development on ? False
+autrarky on ? False
+pump as continous variable ? True
+emission limit on?  True
+local gas price on? True
+OBPS on? False
+SMR and CCS technologies ? 100
+emission limit reference year ? 2017
+Carbon reduction compared to refrence year 2017 = 0.0
