@@ -57,7 +57,7 @@ for i in ctax:
             flex_i_2050 = flex_i_2050.append(
                 (cap_ap_2050.loc[ALP, :] / cap_ap_2050_total.loc[ALP, :]) * ((0.5 * (cap_ap_2050.loc[ALP, :])) + 0.5 * (
                         cap_ap_2050.loc[ALP, :] * ramp_rate_percent[ALP])) / cap_ap_2050.loc[ALP, :])
-        if ALP == 'gas' or ALP == 'gasccs' or ALP == 'peaker':
+        elif ALP == 'gas' or ALP == 'gasccs':
             flex_i_2030 = flex_i_2030.append(
                 (cap_ap_2030.loc[ALP, :] / cap_ap_2030_total.loc[ALP, :]) * (
                             (0.25 * (cap_ap_2030.loc[ALP, :])) + 0.5 * (
@@ -70,7 +70,20 @@ for i in ctax:
                 (cap_ap_2050.loc[ALP, :] / cap_ap_2050_total.loc[ALP, :]) * (
                             (0.25 * (cap_ap_2050.loc[ALP, :])) + 0.5 * (
                             cap_ap_2050.loc[ALP, :] * ramp_rate_percent[ALP])) / cap_ap_2050.loc[ALP, :])
-        if ALP == 'nuclear':
+        elif  ALP == 'peaker':
+            flex_i_2030 = flex_i_2030.append(
+                (cap_ap_2030.loc[ALP, :] / cap_ap_2030_total.loc[ALP, :]) * (
+                            ((cap_ap_2030.loc[ALP, :])) + 0.5 * (
+                            cap_ap_2030.loc[ALP, :] * ramp_rate_percent[ALP])) / cap_ap_2030.loc[ALP, :])
+            flex_i_2040 = flex_i_2040.append(
+                (cap_ap_2040.loc[ALP, :] / cap_ap_2040_total.loc[ALP, :]) * (
+                            ((cap_ap_2040.loc[ALP, :])) + 0.5 * (
+                            cap_ap_2040.loc[ALP, :] * ramp_rate_percent[ALP])) / cap_ap_2040.loc[ALP, :])
+            flex_i_2050 = flex_i_2050.append(
+                (cap_ap_2050.loc[ALP, :] / cap_ap_2050_total.loc[ALP, :]) * (
+                            ((cap_ap_2050.loc[ALP, :])) + 0.5 * (
+                            cap_ap_2050.loc[ALP, :] * ramp_rate_percent[ALP])) / cap_ap_2050.loc[ALP, :])
+        elif ALP == 'nuclear':
             flex_i_2030 = flex_i_2030.append(
                 (cap_ap_2030.loc[ALP, :] / cap_ap_2030_total.loc[ALP, :]) * ((0.5 * (cap_ap_2030.loc[ALP, :])) + 0.5 * (
                         cap_ap_2030.loc[ALP, :] * ramp_rate_percent[ALP])) / cap_ap_2030.loc[ALP, :])
@@ -80,7 +93,7 @@ for i in ctax:
             flex_i_2050 = flex_i_2050.append(
                 (cap_ap_2050.loc[ALP, :] / cap_ap_2050_total.loc[ALP, :]) * ((0.5 * (cap_ap_2050.loc[ALP, :])) + 0.5 * (
                         cap_ap_2050.loc[ALP, :] * ramp_rate_percent[ALP])) / cap_ap_2050.loc[ALP, :])
-        if ALP == 'waste':
+        elif ALP == 'waste':
             flex_i_2030 = flex_i_2030.append(
                 (cap_ap_2030.loc[ALP, :] / cap_ap_2030_total.loc[ALP, :]) * ((0.2 * (cap_ap_2030.loc[ALP, :])) + 0.5 * (
                         cap_ap_2030.loc[ALP, :] * ramp_rate_percent[ALP])) / cap_ap_2030.loc[ALP, :])
@@ -90,7 +103,7 @@ for i in ctax:
             flex_i_2050 = flex_i_2050.append(
                 (cap_ap_2050.loc[ALP, :] / cap_ap_2050_total.loc[ALP, :]) * ((0.2 * (cap_ap_2050.loc[ALP, :])) + 0.5 * (
                         cap_ap_2030.loc[ALP, :] * ramp_rate_percent[ALP])) / cap_ap_2050.loc[ALP, :])
-        if ALP == 'hydro':
+        elif ALP == 'hydro':
             flex_i_2030 = flex_i_2030.append(
                 (cap_ap_2030.loc[ALP, :] / cap_ap_2030_total.loc[ALP, :]) * ((0.5 * (cap_ap_2030.loc[ALP, :])) + 0.5 * (
                         cap_ap_2030.loc[ALP, :] * ramp_rate_percent[ALP])) / cap_ap_2030.loc[ALP, :])
@@ -107,5 +120,6 @@ for i in ctax:
 
     os.chdir(cwd)
 
-    # print(cap_ap)
-    # print(flex_i_2030, flex_i_2030.agg(['sum']))
+    #print(cap_ap)
+
+print(flex_i_2030, flex_i_2030.agg(['sum']))

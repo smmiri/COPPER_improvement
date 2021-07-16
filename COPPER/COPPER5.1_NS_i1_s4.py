@@ -20,18 +20,19 @@ reserve_margin=0.15 ####[CERI 174 p37(21), ReEDS model doc 2018,]
 pump_ret_limit=0.5
 downsampling=False
 hierarchical=True
-test=True
+test=False
 hydro_development=False
 autrarky=False
 pump_continous=True
 emission_limit=False
 emission_limit_ref_year=2017
 local_gas_price=True
-OBPS_on=True
+OBPS_on=False
 SMR_CCS=True
-GPS=True
-
+GPS=False
 CPO=True
+min_installed_gas_PHP=True
+
 ##### Reading the configuration excel sheet #####
 
 
@@ -61,6 +62,11 @@ aba=["British Columbia.a", "Alberta.a",  "Saskatchewan.a", "Manitoba.a", "Ontari
 
 ###Just for creatin input files####
 aba1=['a','b']
+
+#### gas PHP installed capacity limit
+gas_PHP_installed_limit=dict()
+for ABA in aba:
+    gas_PHP_installed_limit[ABA]=0
 
 ##we can skip runnig some days using smaple_rat, for example if sample_rate=3 it will run days 1,4,7,10,... 
 # number of days that we want to run
@@ -118,6 +124,16 @@ h=list(range(1,8761))
 
 
 
+
+gltoba=pd.read_csv(r'map_gl_to_ba.csv',header=None)
+map_gl_to_ba=dict(gltoba.values)        #map grid locations to balancing areas
+del gltoba
+
+gltopr=pd.read_csv(r'map_gl_to_pr.csv',header=None)
+map_gl_to_pr=dict(gltopr.values)        #map grid locations to provinces
+del gltopr
+
+
 ##### Generation fleets data
 if SMR_CCS:
     gendata = pd.read_excel (r'Generation_type_data_SMR_CCS.xlsx',header=0 )
@@ -148,12 +164,19 @@ variable_o_m=dict(zip(list(gendata.iloc[:]['Type']),list(gendata.iloc[:]['variab
 
 fuelprice=dict(zip(list(gendata.iloc[:]['Type']),list(gendata.iloc[:]['fuelprice'])))#dict(fuel_price.values) 
 
-capitalcost=dict(zip(list(gendata.iloc[:]['Type']),list(gendata.iloc[:]['capitalcost'])))#dict(capital_cost.values) 
+
+capitalcost1=dict(zip(list(gendata.iloc[:]['Type']),list(gendata.iloc[:]['capitalcost'])))#dict(capital_cost.values)
+capitalcost=dict()
+for ABA in aba:
+    for G in capitalcost1:
+        capitalcost[ABA+'.'+G]=capitalcost1[G]
+capitalcost['Nova Scotia.a.wind'] = 219078.6716
 
 
 if GPS:
-    capitalcost['peaker']=1000000000 
-    capitalcost['coal']=1000000000
+    for ABA in aba:
+        capitalcost[ABA+'.peaker']=1000000000 
+        capitalcost[ABA+'.coal']=1000000000
 
 for k in capitalcost:
     capitalcost[k]=capitalcost[k]/cap_cost_alter
@@ -179,8 +202,8 @@ distance_to_grid=dict(distancetogrid.values)
 windcost=dict()
 solarcost=dict()
 for GL in gl:
-    windcost[GL]=capitalcost['wind']+distance_to_grid[int(GL)]*intra_ba_transcost
-    solarcost[GL] = capitalcost['solar'] + distance_to_grid[int(GL)]*intra_ba_transcost
+    windcost[GL]=capitalcost[map_gl_to_ba[int(GL)]+'.wind']+distance_to_grid[int(GL)]*intra_ba_transcost
+    solarcost[GL] = capitalcost[map_gl_to_ba[int(GL)]+'.solar'] + distance_to_grid[int(GL)]*intra_ba_transcost
 
 
 
@@ -239,13 +262,6 @@ else:
 # ba=list(demeqsup.iloc[:,0])        #balancing areas where supply equals demand
 # del demeqsup
 
-gltoba=pd.read_csv(r'map_gl_to_ba.csv',header=None)
-map_gl_to_ba=dict(gltoba.values)        #map grid locations to balancing areas
-del gltoba
-
-gltopr=pd.read_csv(r'map_gl_to_pr.csv',header=None)
-map_gl_to_pr=dict(gltopr.values)        #map grid locations to provinces
-del gltopr
 
 transmapba=pd.read_csv(r'transmission_map_ba.csv',header=None)
 transmap=list(transmapba.iloc[:,0])        #map grid locations to provinces
@@ -763,7 +779,7 @@ for ABA in aba:
 
 ###Objective function total cost minimization###
 def obj_rule(model):
-     capcost=sum(model.capacity_therm[PD,ABA,TP]*capitalcost[TP]*(len(pds)-pds.index(PD)) for PD in pds for TP in tplants for ABA in aba)\
+     capcost=sum(model.capacity_therm[PD,ABA,TP]*capitalcost[ABA+'.'+TP]*(len(pds)-pds.index(PD)) for PD in pds for TP in tplants for ABA in aba)\
            +sum(model.capacity_wind[PD,GL] * windcost[GL]*(len(pds)-pds.index(PD)) for PD in pds for GL in gl)\
            +sum(model.capacity_solar[PD,GL] * solarcost[GL]*(len(pds)-pds.index(PD)) for PD in pds for GL in gl)\
            +sum(model.capacity_wind_recon[PD,GL] * windcost_recon*(len(pds)-pds.index(PD)) for PD in pds for GL in gl)\
@@ -1082,6 +1098,12 @@ if emission_limit:
         return sum(model.supply[pds[-1],H,ABA,TP]*carbondioxide[TP]/1000000 for H in h for TP in tplants for ABA in aba if AP in ABA)<=carbon_limit[AP]/(365/len(rundays))
     model.carbonlimit=Constraint(ap, rule=carbonlimit)
 
+if min_installed_gas_PHP:
+    def installedgasPHP(model,ABA):
+        return sum(model.capacity_therm[PD,ABA,'peaker']-model.retire_therm[PD,ABA,'peaker']+model.capacity_storage[PD,ABA] for PD in pds)+extant_thermal[pds[0]+'.'+ABA+'.'+'peaker']+ba_pump_hydro_capacity[ABA]>=gas_PHP_installed_limit[ABA]
+    model.installedgasPHP=Constraint(aba, rule=installedgasPHP)
+
+
 
 end=time.time()
 
@@ -1122,10 +1144,9 @@ Solving process time: {round((end-start)/60)} Min and {round((end-start)%60)} Se
 
 #         supminusdem[H]=production[ABA+'.'+str(H)]-totdemand[ABA+'.'+str(H)]
 
-coordinate = pd.read_excel(r'coordinate.xlsx')
 
 ############Saving resaults in .csv files################
-folder_name='outputs'+'_ct'+str(ctax)+'_rd'+str(len(rundays))+'_pds'+str(len(pds))
+folder_name='NS_i1_s4_outputs'+'_ct'+str(ctax)+'_rd'+str(len(rundays))+'_pds'+str(len(pds))
 
 if test:
    folder_name+='_Test' 
@@ -1328,6 +1349,10 @@ with open('COPPER config.txt', 'w') as f:
     
     sys.stdout = original_stdout # Reset the standard output to its original value
 
+#model.ror_renewal_binary.pprint()
+#model.day_renewal_binary.pprint()
+#model.month_renewal_binary.pprint()
+#model.pumphydro.pprint()
 
 ############# Analyze the results ##################
 
@@ -1604,7 +1629,5 @@ TOTAL_generation_ap.to_excel('Total_generation_ap.xlsx', index=True)
 #model.day_renewal_binary.pprint()
 #model.month_renewal_binary.pprint()
 #model.pumphydro.pprint()
-
-
 
 os.chdir(cwd)
