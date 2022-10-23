@@ -1,11 +1,13 @@
 # Data processing projects
 These data flow, management, post-process and visualization projects are donve for my PhD research tasks.
 
-The **plan_oper_translator*8 converts outputs from the COPPER power system planning model model into inputs which can be read by the SILVER operational model.
+The **plan_oper_translator** converts outputs from the COPPER power system planning model model into inputs which can be read by the SILVER operational model.
 The **demand_oper_translater** tool converts outputs from SILVER to building model and vice versa.
 The **oper_process** tools are used to post-process and analyze outputs from the SILVER operational model. 
-The **test_flow_interpolation** was an interesting test project to interpolate power flow data outside of the models' boundaries. 
+The **test_flow_interpolation** was an interesting test project to interpolate power flow data outside of the models' boundaries.
 The **vizualization** folder includes codes for producing plots to be used in my research projects.
+
+
 
 ## Usage Instructions
 These tools are developed for specific uses and specific model outputs. They can be utilized for similar data structures, though. 
