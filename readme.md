@@ -1,4 +1,4 @@
-# Data processing projects
+# ETL and Visualization projects
 These data flow, management, post-process and visualization projects are donve for my PhD research tasks.
 
 - **plan_oper_translator** converts outputs from the COPPER power system planning model model into inputs which can be read by the SILVER operational model.
