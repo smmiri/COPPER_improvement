@@ -130,7 +130,7 @@ load = load[['residential_cooling', 'residential_heating']].reset_index(drop=Tru
 load.index = pd.to_datetime(load.index, unit='h', dayfirst=True, origin='2050-01-01')
 
 lmp_daily = pd.DataFrame()
-el_upper = 0.75
+el_upper = 0.5
 el_lower = 0.25
 
 lmp_daily['sp_max'] = lmp_hourly['mean'].groupby(np.arange(len(lmp_hourly))//24).max()
@@ -161,7 +161,7 @@ setpoint_counter = 0
 monthly_hours = 0
 
 red_imp = 0.96
-inc_imp = 1.10
+inc_imp = 1.04
 
 changed_sp = pd.DataFrame(index = combined_lf.index)
 changed_sp['changed'] = np.nan
@@ -174,8 +174,17 @@ loads_prev.drop(loads_prev.tail(1).index, inplace=True)
 loads_prev.reset_index(drop=True, inplace=True)
 loads_prev.index = pd.to_datetime(loads_prev.index, unit='h', dayfirst=True, origin='2050-01-01')
 loads = loads_prev
+loads_prev = loads_prev.iloc[0:1440]
 
-for index,values in lmp_hourly.iterrows():
+
+loads_daily = pd.DataFrame()
+loads_daily['daily_max'] = loads_prev['demand'].groupby(np.arange(len(loads_prev))//24).max()
+ldt = 0.9 #loads drop thershold
+loads_daily['ldt'] = ldt * loads_daily['daily_max']
+loads_daily.index = pd.to_datetime(loads_daily.index, unit='D', dayfirst=True, origin='2050-01-01')
+
+
+for index,values in loads_prev.iterrows():
     
     currentmonth = index.month
     currentday = index.day
@@ -184,27 +193,25 @@ for index,values in lmp_hourly.iterrows():
     #separate seasons, winter, based on the load calculation files out of base load
     if load.loc[(load.index.hour == hour) & (load.index.day == currentday) & (load.index.month == currentmonth), 'residential_heating'][0] != 0:
         #and changed_sp['changed'].loc[index] != True:
-
-        if  (values['mean'] > lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'hpt'][0] or  
-             values['mean'] < lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'lpt'][0]):
-             
-             changed_sp.loc[index, 'changed'] = True
-             
+            
                      
         #decrease the load, if higher than HPT
-        if values['mean'] > lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'hpt'][0]:# and \
+        if values['demand'] > loads_daily.loc[(loads_daily.index.day == currentday) & (loads_daily.index.month == currentmonth), 'ldt'][0] and \
+            lmp_hourly['mean'].loc[index] > lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'hpt'][0]:
             #congestion.loc[index, congestion.columns.get_level_values(0)=='Any congested lines'].values[0] and \
             #curtailment_rate['Total Curtailed Wind'].loc[index] < 5:# and changed_sp['changed'].loc[index] != True:
 
             loads.loc[index, 'residential_heating'] = loads_prev.loc[index, 'residential_heating'] * red_imp
-
+            changed_sp.loc[index, 'changed'] = True
 
         #increase the load, if lower than LPT
-        elif values['mean'] < lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'lpt'][0]:# and \
+        elif values['demand'] < loads_daily.loc[(loads_daily.index.day == currentday) & (loads_daily.index.month == currentmonth), 'ldt'][0] and \
+            lmp_hourly['mean'].loc[index] < lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'lpt'][0]:
             #congestion.loc[index, congestion.columns.get_level_values(0)=='Any congested lines'].values[0]==False and \
             #curtailment_rate['Total Curtailed Wind'].loc[index] >= 5:# and changed_sp['changed'].loc[index] != True:
 
             loads.loc[index, 'residential_heating'] = loads_prev.loc[index, 'residential_heating'] * inc_imp
+            changed_sp.loc[index, 'changed'] = True
 
     lastmonth = currentmonth
     lastday = currentday

@@ -176,46 +176,65 @@ try:
 except:
     print('This is the first iteration for changing setpoints')
 
+loads_prev = pd.read_csv(f'{pwd}/{dir}/loads_{dir}.csv', index_col=0)
 
-for index,values in lmp_hourly.iterrows():
+loads_prev.drop(loads_prev.tail(1).index, inplace=True)
+loads_prev.reset_index(drop=True, inplace=True)
+loads_prev.index = pd.to_datetime(loads_prev.index, unit='h', dayfirst=True, origin='2050-01-01')
+loads = loads_prev
+loads_prev = loads_prev.iloc[0:1440]
+
+loads_daily = pd.DataFrame()
+loads_daily['daily_max'] = loads_prev['demand'].groupby(np.arange(len(loads_prev))//24).max()
+loads_daily['daily_min'] = loads_prev['demand'].groupby(np.arange(len(loads_prev))//24).min()
+ldt = 0.90 #loads drop thershold
+hdt = 0.20 #loads increase
+loads_daily['ldt'] = loads_daily['daily_min'] + ldt * (loads_daily['daily_max'] - loads_daily['daily_min'])
+loads_daily['hdt'] = loads_daily['daily_min'] + hdt * (loads_daily['daily_max'] - loads_daily['daily_min'])
+loads_daily.index = pd.to_datetime(loads_daily.index, unit='D', dayfirst=True, origin='2050-01-01')
+
+lastmonth = 0
+lastday = 0
+
+for index,values in loads_prev.iterrows():
     
     currentmonth = index.month
     currentday = index.day
     hour = index.hour
 
     #separate seasons, winter, based on the load calculation files out of base load
-    if load.loc[(load.index.hour == hour) & (load.index.day == currentday) & (load.index.month == currentmonth), 'residential_heating'][0] != 0:#\
+    if load.loc[(load.index.hour == hour) & (load.index.day == currentday) & (load.index.month == currentmonth), 'residential_heating'][0] != 0 and \
+        ((values['demand'] > loads_daily.loc[(loads_daily.index.day == currentday) & (loads_daily.index.month == currentmonth), 'ldt'][0] and
+        lmp_hourly['mean'].loc[index] > lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'hpt'][0]) or \
+        (values['demand'] < loads_daily.loc[(loads_daily.index.day == currentday) & (loads_daily.index.month == currentmonth), 'ldt'][0] and 
+        lmp_hourly['mean'].loc[index] < lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'lpt'][0])):
         #and changed_sp['changed'].loc[index] != True:
 
-        if  (values['mean'] > lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'hpt'][0] or  
-             values['mean'] < lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'lpt'][0]):
-
-            if currentmonth != lastmonth:
-                monthly_hours = 0
-                if lastmonth == 0:
-                    htgfile.write(F'{Rubystringhtg}(\"IF (Month == {index.month}) \") \n' )
-                else:
-                    if lastday != 0:
-                        htgfile.write(F'{Rubystringhtg}(\"ENDIF\")\n') # matching if: day == 1 or hour == 14?
-                    htgfile.write(F'{Rubystringhtg}(\"ENDIF\")\n') # matching if = day == 1 or hour == 14?
-                    htgfile.write(F'{Rubystringhtg}(\"ELSEIF (Month == {index.month}) \") \n' )             
-            
-            if currentday != lastday:
-                setpoint_counter = 0
-                if monthly_hours == 0:
-                    #if lastday != 0:
-                        #htgfile.write(F'{Rubystringhtg}(\"ENDIF\")\n') # matching if: day == 1 or hour == 14?
-                        
-                    htgfile.write(F'{Rubystringhtg}(\"IF (DayOfMonth == {index.day}) \") \n' )
-                        
-                else:
-                    htgfile.write(F'{Rubystringhtg}(\"ENDIF\")\n')
-                    htgfile.write(F'{Rubystringhtg}(\"ELSEIF (DayOfMonth == {index.day}) \") \n' )
+        if currentmonth != lastmonth:
+            monthly_hours = 0
+            if lastmonth == 0:
+                htgfile.write(F'{Rubystringhtg}(\"IF (Month == {index.month}) \") \n' )
+            else:
+                if lastday != 0:
+                    htgfile.write(F'{Rubystringhtg}(\"ENDIF\")\n') # matching if: day == 1 or hour == 14?
+                htgfile.write(F'{Rubystringhtg}(\"ENDIF\")\n') # matching if = day == 1 or hour == 14?
+                htgfile.write(F'{Rubystringhtg}(\"ELSEIF (Month == {index.month}) \") \n' )             
+        
+        if currentday != lastday:
+            setpoint_counter = 0
+            if monthly_hours == 0:
+                #if lastday != 0:
+                    #htgfile.write(F'{Rubystringhtg}(\"ENDIF\")\n') # matching if: day == 1 or hour == 14?
+                    
+                htgfile.write(F'{Rubystringhtg}(\"IF (DayOfMonth == {index.day}) \") \n' )
+                    
+            else:
+                htgfile.write(F'{Rubystringhtg}(\"ENDIF\")\n')
+                htgfile.write(F'{Rubystringhtg}(\"ELSEIF (DayOfMonth == {index.day}) \") \n' )
                        
         #decrease the setpoint, if higher than HPT
-        if values['mean'] > lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'hpt'][0] and \
-            congestion.loc[index, congestion.columns.get_level_values(0)=='Any congested lines'].values[0] and \
-            curtailment_rate['Total Curtailed Wind'].loc[index] < 4:
+        if values['demand'] > loads_daily.loc[(loads_daily.index.day == currentday) & (loads_daily.index.month == currentmonth), 'ldt'][0] and \
+            lmp_hourly['mean'].loc[index] > lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'hpt'][0]:
             if setpoint_counter == 0:
                 htgfile.write(F'{Rubystringhtg}(\"IF (Hour == {index.hour}) \") \n' )
             else:
@@ -225,9 +244,8 @@ for index,values in lmp_hourly.iterrows():
             changed_sp['changed'].loc[index] = True
 
         #increase the setpoint, if lower than LPT
-        elif values['mean'] < lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'lpt'][0] and \
-            congestion.loc[index, congestion.columns.get_level_values(0)=='Any congested lines'].values[0]==False and \
-            curtailment_rate['Total Curtailed Wind'].loc[index] >= 4:
+        elif values['demand'] < loads_daily.loc[(loads_daily.index.day == currentday) & (loads_daily.index.month == currentmonth), 'hdt'][0] and \
+            lmp_hourly['mean'].loc[index] < lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'lpt'][0]:
             if setpoint_counter == 0:
                 htgfile.write(F'{Rubystringhtg}(\"IF (Hour == {index.hour}) \") \n' )
             else:
@@ -241,8 +259,8 @@ for index,values in lmp_hourly.iterrows():
        
         monthly_hours += 1
 
-    lastmonth = currentmonth
-    lastday = currentday
+        lastmonth = currentmonth
+        lastday = currentday
 
 changed_sp.to_csv(f'changed_sp_{dir}.csv')
 

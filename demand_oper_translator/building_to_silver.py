@@ -1,4 +1,5 @@
 from glob import glob
+from json import load
 from openpyxl import Workbook, load_workbook
 import os
 import pandas as pd
@@ -11,6 +12,13 @@ pwd = os.path.dirname(cwd)
 naming = input("Input the iteration number province, and scenario in the correct format:\n(iteration_province_scenario in the format, iteration_elecscenario_emissionscenario)\n")
 #province = naming.split('_')[1]
 province = 'AB'
+
+iter = naming.split('_')[0]
+for m in iter:
+    if m.isdigit():
+        iter_num = m
+m = int(m)
+scen = naming.split('_')[1] + '_' + naming.split('_')[2]
 
 housing_count = pd.read_excel('House_Counts.xlsx',header=0, nrows=1, usecols=[2,3,4], thousands=r',', 
                 sheet_name= province + '_{}'.format(naming.split('_')[1]))
@@ -33,18 +41,20 @@ loads = pd.DataFrame()
 
 for dir in directories:
     #os.chdir(f"/mnt/c/users/smoha/documents/{dir[:-1]}_{naming}/reports")
-    os.chdir(f'{dir}reports')
-    shutil.copy('export_meterto_csv_report_CoolingElectricity_Hourly.csv', sen + '/' + dir.split('/')[1] + '_cooling_hourly.csv')
-    temp = pd.read_csv('export_meterto_csv_report_CoolingElectricity_Hourly.csv', index_col=0, parse_dates=True, header=0)
+    os.chdir(f"/mnt/c/users/smoha/documents/archetypes_base/report")
+    #os.chdir(f'{dir}reports')
+    shutil.copy2(f'{dir.split("/")[1]}_{naming}_CoolingElectricity.csv' ,sen)
+    temp = pd.read_csv(f'{dir.split("/")[1]}_{naming}_CoolingElectricity.csv', index_col=0, parse_dates=True, header=0)
     loads[dir.split('/')[1]+'_cooling'] = temp.iloc[:,0]
-    shutil.copy('export_meterto_csv_report_HeatingElectricity_Hourly.csv', sen + '/' + dir.split('/')[1] + '_heating_hourly.csv')
-    temp = pd.read_csv('export_meterto_csv_report_HeatingElectricity_Hourly.csv', index_col=0, parse_dates=True, header=0)
+    shutil.copy2(f'{dir.split("/")[1]}_{naming}_HeatingElectricity.csv' ,sen)
+    temp = pd.read_csv(f'{dir.split("/")[1]}_{naming}_HeatingElectricity.csv', index_col=0, parse_dates=True, header=0)
     loads[dir.split('/')[1]+'_heating'] = temp.iloc[:,0]
 
     loads[dir.split('/')[1]+'_total'] = loads[dir.split('/')[1]+'_cooling'] + loads[dir.split('/')[1]+'_heating']
 
     os.chdir(pwd)
 
+particip = 0.15
 
 applliance_load.index = pd.to_datetime(loads.index)
 
@@ -53,9 +63,14 @@ loads['residential_heating'] = (1/(3600*1000000))*(sum(housing_count[dir.split('
     *loads[dir.split('/')[1]+'_heating'] for dir in directories))
 loads['residential_cooling'] = (1/(3600*1000000))*(sum(housing_count[dir.split('/')[1]][0] 
     *loads[dir.split('/')[1]+'_cooling'] for dir in directories))
-loads['residential_total'] = (1/(3600*1000000))*(sum(housing_count[dir.split('/')[1]][0] 
-    *loads[dir.split('/')[1]+'_total'] for dir in directories)) \
-    + loads['total_appliance']
+
+loads_prev = pd.read_csv(f'{pwd}/iter{m-1}_{scen}/loads_iter{m-1}_{scen}.csv', index_col=0)
+loads_prev.drop(loads_prev.tail(1).index, inplace=True)
+loads_prev.index = loads.index
+
+loads['residential_total'] = (loads['residential_cooling'] + loads['residential_heating'])*particip +\
+    (loads_prev['residential_cooling'] + loads_prev['residential_heating'])*(1-particip) + loads['total_appliance']
+
 
 demand_proj.index = pd.to_datetime(loads.index)
 loads['commercial'] = 1000*demand_proj['Commercial']
@@ -67,38 +82,27 @@ loads['demand'] = loads['residential_total'] + loads['commercial'] + loads['indu
 
 os.chdir(cwd)
 
-copied = pwd + f'/automation/{province}_Demand_Real_Forecasted_mod.xlsx'
-shutil.copy(pwd + f'/silver_prep/{province}_Demand_Real_Forecasted.xlsx', copied)
-
-demand_base = pd.read_excel(copied, sheet_name='Province_Total_Real', index_col=0)
+demand_prev = f'{pwd}/iter{m-1}_{scen}/AB_2050_iter{m-1}_{scen}_Demand_Real_Forecasted.xlsx'
+demand_new  = f'{sen}/AB_2050_{iter}_{scen}_Demand_Real_Forecasted.xlsx'
+demand_base = pd.read_excel(demand_prev, sheet_name='Province_Total_Real', index_col=0)
 loads.index = pd.to_datetime(demand_base.index, dayfirst= True, unit='h')
+shutil.copy(demand_prev, demand_new)
+
 
 now = time.strftime("%d-%m-%Y %H-%M-%S")
 
-loads_shortcut = pd.DataFrame()
-loads_shortcut['base_load'] = demand_base['demand']*1.05 - loads['residential_total']
-loads_shortcut['residential'] = loads['residential_total']
-loads_shortcut['demand'] = loads_shortcut['residential'] + loads_shortcut['base_load']
+#changed_sp_prev = pd.read_csv(f'{pwd}/iter{m-1}_{scen}/changed_sp_iter{m-1}_{scen}.csv', index_col=0)
+#changed_sp_prev.index = demand_base.index
 
-demand_base['demand'] = loads_shortcut['demand']
-wb_target = load_workbook(copied, data_only=False)
-del wb_target['Province_Total_Real']
-writer = pd.ExcelWriter(copied, engine='openpyxl')
-writer.book = wb_target
-demand_base.to_excel(writer, sheet_name='Province_Total_Real', index=True)
-writer.save()
-wb_target.close()
-shutil.copy(copied, sen + '/' + f'{province}_Demand_Real_Forecasted_shortcut_' + sen.split('/')[-2] + '.xlsx')
-
+#demand_base['demand'].loc[changed_sp_prev.loc[changed_sp_prev['changed']==True].index] = loads['demand']
 demand_base['demand'] = loads['demand']
-wb_target = load_workbook(copied, data_only=False)
+wb_target = load_workbook(demand_new, data_only=False)
 del wb_target['Province_Total_Real']
-writer = pd.ExcelWriter(copied, engine='openpyxl')
+writer = pd.ExcelWriter(demand_new, engine='openpyxl')
 writer.book = wb_target
 demand_base.to_excel(writer, sheet_name='Province_Total_Real', index=True)
 writer.save()
 wb_target.close()
-shutil.copy(copied, sen + '/' + f'{province}_2050_{naming.split("_")[0]}_{naming.split("_")[1]}_{naming.split("_")[2]}_Demand_Real_Forecasted' + '.xlsx')
 
 totals = pd.DataFrame(loads[['residential_total', 'commercial', 'industrial', 'road', 'demand']].sum())
 totals = totals.transpose()
@@ -110,4 +114,3 @@ index_list[totals] = 'totals'
 loads.index = index_list'''
 #loads.to_csv(f'loads_{now}.csv')
 loads.to_csv(sen + '/' + f'loads_' + sen.split('/')[-1] + '.csv')
-loads_shortcut.to_csv(sen + '/' + f'loads_shourtcut_' + sen.split('/')[-1] + '.csv')
