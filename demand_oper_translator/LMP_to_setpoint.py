@@ -62,7 +62,7 @@ congestion.columns = pd.MultiIndex.from_frame(header)
 try:
     shutil.copy2(f'{pwd}/iter{m-1}_{scen}/pmax.xlsx', f'{pwd}/{dir}')
 except:
-    print('Provide PMax data for this scenario')
+    print('This is the first iteration')
 
 try:
     pmax = pd.read_excel('pmax.xlsx', index_col=0, header=None)
@@ -75,7 +75,7 @@ pmax = pd.concat([pmax]*1440)
 pmax.index = combined_lf.index
 
 for column in combined_lf.columns:
-    congestion[column] = np.where(combined_lf[column] > 0.85*pmax[column], 1, 0)
+    congestion[column] = np.where(combined_lf[column] > 0.95*pmax[column], 1, 0)
 
 congestion['Any congested lines'] = congestion.any(axis=1)
 
@@ -126,7 +126,7 @@ combined_uc.to_excel(writer, sheet_name="UC Results", encoding='UTF-8')
 combined_uc_vre.to_excel(writer, sheet_name="UC VRE Results", encoding='UTF-8')
 combined_lf.to_excel(writer, sheet_name="Line Flow", encoding='UTF-8')
 combined_available_vre.to_excel(writer, sheet_name="Available VRE", encoding='UTF-8')
-combined_lmp.to_excel(writer, sheet_name="LMP Results", encoding='UTF-8')
+lmp_hourly.to_excel(writer, sheet_name="LMP Results", encoding='UTF-8')
 curtailment.to_excel(writer, sheet_name="Curtailment Details", encoding='UTF-8')
 congestion.to_excel(writer, sheet_name="Congestion Analysis", encoding='UTF-8')
 writer.save()
@@ -137,8 +137,8 @@ load = load[['residential_cooling', 'residential_heating']].reset_index(drop=Tru
 load.index = pd.to_datetime(load.index, unit='h', dayfirst=True, origin='2050-01-01')
 
 lmp_daily = pd.DataFrame()
-el_upper = 0.90
-el_lower = 0.30
+el_upper = 0.991
+el_lower = 0.05
 
 lmp_daily['sp_max'] = lmp_hourly['mean'].groupby(np.arange(len(lmp_hourly))//24).max()
 lmp_daily['sp_min'] = lmp_hourly['mean'].groupby(np.arange(len(lmp_hourly))//24).min()
@@ -156,7 +156,7 @@ htgfile = open('htg_measure.txt', 'w+')
 Rubystringhtg = 'ems_htg_setpoint_prg.addLine'
 Rubystringclg = 'ems_clg_setpoint_prg.addLine'
 
-max_sp_winter = 25
+max_sp_winter = 23
 min_sp_winter = 20
 mean_sp_winter = 21
 max_sp_summer = 27
@@ -170,11 +170,11 @@ monthly_hours = 0
 
 changed_sp = pd.DataFrame(index = combined_lf.index)
 changed_sp['changed'] = np.nan
-try:
+'''try:
     changed_sp_prev = pd.read_csv(f'{pwd}/iter{m-1}_{scen}/changed_sp_iter{m-1}_{scen}.csv', index_col=0)
     changed_sp['changed'] = changed_sp_prev['changed'].to_numpy()
 except:
-    print('This is the first iteration for changing setpoints')
+    print('This is the first iteration for changing setpoints')'''
 
 
 for index,values in lmp_hourly.iterrows():
@@ -208,41 +208,43 @@ for index,values in lmp_hourly.iterrows():
                         
                     htgfile.write(F'{Rubystringhtg}(\"IF (DayOfMonth == {index.day}) \") \n' )
                         
-                else:
+                elif changed_sp.loc[changed_sp.index.day == currentday-1,'changed'].any():
                     htgfile.write(F'{Rubystringhtg}(\"ENDIF\")\n')
                     htgfile.write(F'{Rubystringhtg}(\"ELSEIF (DayOfMonth == {index.day}) \") \n' )
                        
-        #decrease the setpoint, if higher than HPT
-        if values['mean'] > lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'hpt'][0] and \
-            congestion.loc[index, congestion.columns.get_level_values(0)=='Any congested lines'].values[0] and \
-            curtailment_rate['Total Curtailed Wind'].loc[index] < 4:
-            if setpoint_counter == 0:
-                htgfile.write(F'{Rubystringhtg}(\"IF (Hour == {index.hour}) \") \n' )
+            #decrease the setpoint, if higher than HPT
+            if values['mean'] > lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'hpt'][0] and \
+                curtailment_rate.at[index, 'Total Curtailed Wind'] < 5:
+                #congestion.loc[index, congestion.columns.get_level_values(0)=='Any congested lines'].values[0] and \
+                if setpoint_counter == 0:
+                    htgfile.write(F'{Rubystringhtg}(\"IF (Hour == {index.hour}) \") \n' )
+                else:
+                    htgfile.write(F'{Rubystringhtg}(\"ELSEIF (Hour == {index.hour-1}) \") \n' )
+                htgfile.write(F'{Rubystringhtg}(\"SET #{{ems_htg_sch_actuator.name}} = {min_sp_winter}\") \n')
+                setpoint_counter += 1
+                changed_sp['changed'].loc[index] = True
+
+            #increase the setpoint, if lower than LPT
+            elif values['mean'] < lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'lpt'][0] and \
+                curtailment_rate.at[index, 'Total Curtailed Wind'] >= 5:
+                #congestion.loc[index, congestion.columns.get_level_values(0)=='Any congested lines'].values[0]==False and \
+                
+                
+                if setpoint_counter == 0:
+                    htgfile.write(F'{Rubystringhtg}(\"IF (Hour == {index.hour}) \") \n' )
+                else:
+                    htgfile.write(F'{Rubystringhtg}(\"ELSEIF (Hour == {index.hour-1}) \") \n' )
+                htgfile.write(F'{Rubystringhtg}(\"SET #{{ems_htg_sch_actuator.name}} = {max_sp_winter}\") \n')
+                setpoint_counter += 1
+                changed_sp['changed'].loc[index] = True
+
             else:
-                htgfile.write(F'{Rubystringhtg}(\"ELSEIF (Hour == {index.hour-1}) \") \n' )
-            htgfile.write(F'{Rubystringhtg}(\"SET #{{ems_htg_sch_actuator.name}} = {min_sp_winter}\") \n')
-            setpoint_counter += 1
-            changed_sp['changed'].loc[index] = True
+                setpoint_counter == 0
+        
+            monthly_hours += 1
 
-        #increase the setpoint, if lower than LPT
-        elif values['mean'] < lmp_daily.loc[(lmp_daily.index.day == currentday) & (lmp_daily.index.month == currentmonth), 'lpt'][0] and \
-            congestion.loc[index, congestion.columns.get_level_values(0)=='Any congested lines'].values[0]==False and \
-            curtailment_rate['Total Curtailed Wind'].loc[index] >= 4:
-            if setpoint_counter == 0:
-                htgfile.write(F'{Rubystringhtg}(\"IF (Hour == {index.hour}) \") \n' )
-            else:
-                htgfile.write(F'{Rubystringhtg}(\"ELSEIF (Hour == {index.hour-1}) \") \n' )
-            htgfile.write(F'{Rubystringhtg}(\"SET #{{ems_htg_sch_actuator.name}} = {max_sp_winter}\") \n')
-            setpoint_counter += 1
-            changed_sp['changed'].loc[index] = True
-
-        else:
-            setpoint_counter == 0
-       
-        monthly_hours += 1
-
-    lastmonth = currentmonth
-    lastday = currentday
+            lastmonth = currentmonth
+            lastday = currentday
 
 changed_sp.to_csv(f'changed_sp_{dir}.csv')
 
@@ -271,7 +273,8 @@ with open('measure.rb', 'w') as measure_file:
         elif i == 343:
             measure_file.writelines('    ' + lin for lin in tstat_lines)
         else:
-            measure_file.writelines(line)     
+            measure_file.writelines(line)
+shutil.copy2(f'measure.rb', f'/mnt/c/users/smoha/documents/archetypes_base/measures/DR_measure_setpoint_iter{m+1}/')
 os.chdir(f'{pwd}/{dir}')
 
 clgfile = open('clg_measure.txt', 'w+')

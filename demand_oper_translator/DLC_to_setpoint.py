@@ -13,12 +13,17 @@ for m in iter:
         iter_num = m
 m = int(m)
 scen = dir.split('_')[1] + '_' + dir.split('_')[2]
-src = f"/mnt/c/silver_lmp/silver_data/model results/ab_2050_{dir}"
+src = f"/mnt/c/silver_lmp/silver_data/model results/ab_2050_{dir.split('_')[0]}_{dir.split('_')[1]}_{dir.split('_')[2]}/"
 files = os.listdir(src)
 for fname in files:
     shutil.copy2(os.path.join(src, fname), f'{pwd}/{dir}')
 
-sen = os.path.join(pwd, f'iter{m+1}_{scen}')
+if len(dir.split("_")) > 3:
+    sen = os.path.join(pwd, f'iter{m+1}_{scen}_{dir.split("_")[3]}')
+
+else:
+    sen = os.path.join(pwd, f'iter{m+1}_{scen}')
+    
 os.makedirs(sen, exist_ok=True)   
 
 os.chdir(f'{pwd}/{dir}')
@@ -59,7 +64,8 @@ combined_lf = combined_lf.astype(float)
 congestion = pd.DataFrame(index=combined_lf.index, columns=range(83))
 congestion.columns = pd.MultiIndex.from_frame(header)
 
-try:
+#PMAX mehod should be depreciated as not accurate. USE LMP instead
+"""try:
     shutil.copy2(f'{pwd}/iter{m-1}_{scen}/pmax.xlsx', f'{pwd}/{dir}')
 except:
     print('Provide PMax data for this scenario')
@@ -75,7 +81,7 @@ pmax = pd.concat([pmax]*1440)
 pmax.index = combined_lf.index
 
 for column in combined_lf.columns:
-    congestion[column] = np.where(combined_lf[column] > 0.85*pmax[column], 1, 0)
+    congestion[column] = np.where(combined_lf[column] > 0.85*pmax[column], 1, 0)"""
 
 congestion['Any congested lines'] = congestion.any(axis=1)
 
@@ -131,14 +137,14 @@ curtailment.to_excel(writer, sheet_name="Curtailment Details", encoding='UTF-8')
 congestion.to_excel(writer, sheet_name="Congestion Analysis", encoding='UTF-8')
 writer.save()
 
-load = pd.read_csv(f'loads_{dir}.csv', index_col=0)
+load = pd.read_csv(f"loads_{dir.split('_')[0]}_{dir.split('_')[1]}_{dir.split('_')[2]}.csv", index_col=0)
 
 load = load[['residential_cooling', 'residential_heating']].reset_index(drop=True)
 load.index = pd.to_datetime(load.index, unit='h', dayfirst=True, origin='2050-01-01')
 
 lmp_daily = pd.DataFrame()
 el_upper = 0.90
-el_lower = 0.30
+el_lower = 0.10
 
 lmp_daily['sp_max'] = lmp_hourly['mean'].groupby(np.arange(len(lmp_hourly))//24).max()
 lmp_daily['sp_min'] = lmp_hourly['mean'].groupby(np.arange(len(lmp_hourly))//24).min()
@@ -156,7 +162,7 @@ htgfile = open('htg_measure.txt', 'w+')
 Rubystringhtg = 'ems_htg_setpoint_prg.addLine'
 Rubystringclg = 'ems_clg_setpoint_prg.addLine'
 
-max_sp_winter = 25
+max_sp_winter = 23
 min_sp_winter = 20
 mean_sp_winter = 21
 max_sp_summer = 27
@@ -170,13 +176,13 @@ monthly_hours = 0
 
 changed_sp = pd.DataFrame(index = combined_lf.index)
 changed_sp['changed'] = np.nan
-try:
+'''try:
     changed_sp_prev = pd.read_csv(f'{pwd}/iter{m-1}_{scen}/changed_sp_iter{m-1}_{scen}.csv', index_col=0)
     changed_sp['changed'] = changed_sp_prev['changed'].to_numpy()
 except:
-    print('This is the first iteration for changing setpoints')
+    print('This is the first iteration for changing setpoints')'''
 
-loads_prev = pd.read_csv(f'{pwd}/{dir}/loads_{dir}.csv', index_col=0)
+loads_prev = pd.read_csv(f"{pwd}/{dir}/loads_{dir.split('_')[0]}_{dir.split('_')[1]}_{dir.split('_')[2]}.csv", index_col=0)
 
 loads_prev.drop(loads_prev.tail(1).index, inplace=True)
 loads_prev.reset_index(drop=True, inplace=True)
@@ -185,10 +191,11 @@ loads = loads_prev
 loads_prev = loads_prev.iloc[0:1440]
 
 loads_daily = pd.DataFrame()
+test = np.arange(len(loads_prev))//24
 loads_daily['daily_max'] = loads_prev['demand'].groupby(np.arange(len(loads_prev))//24).max()
 loads_daily['daily_min'] = loads_prev['demand'].groupby(np.arange(len(loads_prev))//24).min()
-ldt = 0.90 #loads drop thershold
-hdt = 0.20 #loads increase
+ldt = 0.88 #loads drop thershold
+hdt = 0.11 #loads increase
 loads_daily['ldt'] = loads_daily['daily_min'] + ldt * (loads_daily['daily_max'] - loads_daily['daily_min'])
 loads_daily['hdt'] = loads_daily['daily_min'] + hdt * (loads_daily['daily_max'] - loads_daily['daily_min'])
 loads_daily.index = pd.to_datetime(loads_daily.index, unit='D', dayfirst=True, origin='2050-01-01')
@@ -228,7 +235,7 @@ for index,values in loads_prev.iterrows():
                     
                 htgfile.write(F'{Rubystringhtg}(\"IF (DayOfMonth == {index.day}) \") \n' )
                     
-            else:
+            elif changed_sp.loc[changed_sp.index.day == currentday-1,'changed'].any():
                 htgfile.write(F'{Rubystringhtg}(\"ENDIF\")\n')
                 htgfile.write(F'{Rubystringhtg}(\"ELSEIF (DayOfMonth == {index.day}) \") \n' )
                        
@@ -289,7 +296,8 @@ with open('measure.rb', 'w') as measure_file:
         elif i == 343:
             measure_file.writelines('    ' + lin for lin in tstat_lines)
         else:
-            measure_file.writelines(line)     
+            measure_file.writelines(line) 
+shutil.copy2(f'measure.rb', f'/mnt/c/users/smoha/documents/archetypes_base/measures/DR_measure_setpoint_iter{m+1}/')
 os.chdir(f'{pwd}/{dir}')
 
 clgfile = open('clg_measure.txt', 'w+')

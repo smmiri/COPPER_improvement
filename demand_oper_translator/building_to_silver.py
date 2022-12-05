@@ -3,6 +3,7 @@ from json import load
 from openpyxl import Workbook, load_workbook
 import os
 import pandas as pd
+import pyperclip
 import shutil
 import time
 
@@ -12,6 +13,7 @@ pwd = os.path.dirname(cwd)
 naming = input("Input the iteration number province, and scenario in the correct format:\n(iteration_province_scenario in the format, iteration_elecscenario_emissionscenario)\n")
 #province = naming.split('_')[1]
 province = 'AB'
+pyperclip.copy(naming)
 
 iter = naming.split('_')[0]
 for m in iter:
@@ -54,7 +56,7 @@ for dir in directories:
 
     os.chdir(pwd)
 
-particip = 0.15
+particip = 0.25
 
 applliance_load.index = pd.to_datetime(loads.index)
 
@@ -64,12 +66,21 @@ loads['residential_heating'] = (1/(3600*1000000))*(sum(housing_count[dir.split('
 loads['residential_cooling'] = (1/(3600*1000000))*(sum(housing_count[dir.split('/')[1]][0] 
     *loads[dir.split('/')[1]+'_cooling'] for dir in directories))
 
-loads_prev = pd.read_csv(f'{pwd}/iter{m-1}_{scen}/loads_iter{m-1}_{scen}.csv', index_col=0)
-loads_prev.drop(loads_prev.tail(1).index, inplace=True)
-loads_prev.index = loads.index
+if iter == 'iter0':
+    loads['residential_total'] = loads['residential_heating'] + loads['residential_cooling']
+    demand_prev = f'{pwd}/automation/AB_Demand_Real_Forecasted.xlsx'
+else:
+    if len(naming.split('_')) > 3:
+        demand_prev = f"{pwd}/iter{m-1}_{scen}_{naming.split('_')[3]}/AB_2050_iter{m-1}_{scen}_Demand_Real_Forecasted.xlsx"
+        loads_prev = pd.read_csv(f"{pwd}/iter{m-1}_{scen}_{naming.split('_')[3]}/loads_iter{m-1}_{scen}.csv", index_col=0)
+    else:
+        demand_prev = f"{pwd}/iter{m-1}_{scen}/AB_2050_iter{m-1}_{scen}_Demand_Real_Forecasted.xlsx"
+        loads_prev = pd.read_csv(f"{pwd}/iter{m-1}_{scen}/loads_iter{m-1}_{scen}.csv", index_col=0)
+    loads_prev.drop(loads_prev.tail(1).index, inplace=True)
+    loads_prev.index = loads.index
 
-loads['residential_total'] = (loads['residential_cooling'] + loads['residential_heating'])*particip +\
-    (loads_prev['residential_cooling'] + loads_prev['residential_heating'])*(1-particip) + loads['total_appliance']
+    loads['residential_total'] = (loads['residential_cooling'] + loads['residential_heating'])*(particip) +\
+        (loads_prev['residential_total'])*(1-particip)
 
 
 demand_proj.index = pd.to_datetime(loads.index)
@@ -78,11 +89,10 @@ loads['industrial'] = 1000*demand_proj['Industrial']
 loads['road'] = 1000*demand_proj['Road']
 loads['rail'] = 1000*demand_proj['Rail']
 
-loads['demand'] = loads['residential_total'] + loads['commercial'] + loads['industrial'] + loads['road'] + loads['rail']
+loads['demand'] = loads['residential_total'] + loads['commercial'] + loads['industrial'] + loads['road'] + loads['rail'] + loads['total_appliance']
 
 os.chdir(cwd)
 
-demand_prev = f'{pwd}/iter{m-1}_{scen}/AB_2050_iter{m-1}_{scen}_Demand_Real_Forecasted.xlsx'
 demand_new  = f'{sen}/AB_2050_{iter}_{scen}_Demand_Real_Forecasted.xlsx'
 demand_base = pd.read_excel(demand_prev, sheet_name='Province_Total_Real', index_col=0)
 loads.index = pd.to_datetime(demand_base.index, dayfirst= True, unit='h')
@@ -113,4 +123,4 @@ totals = index_list.index(8761)
 index_list[totals] = 'totals'
 loads.index = index_list'''
 #loads.to_csv(f'loads_{now}.csv')
-loads.to_csv(sen + '/' + f'loads_' + sen.split('/')[-1] + '.csv')
+loads.to_csv(f"{sen}/loads_{naming.split('_')[0]}_{naming.split('_')[1]}_{naming.split('_')[2]}.csv")
