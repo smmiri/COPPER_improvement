@@ -2,6 +2,7 @@ import glob
 import numpy as np
 import os
 import pandas as pd
+import shutil
 
 # Function to fix the path to the SILVER output folder in case of Windows
 def fixpath(path):
@@ -10,10 +11,19 @@ def fixpath(path):
         pass
     return path
 
-silver_output_dir = fixpath(input('Insert the path to the folder containing SILVER results:\n'))
-os.chdir(silver_output_dir)
+#silver_output_dir = fixpath(input('Insert the path to the folder containing SILVER results:\n'))
+scen = input('Scenario:\n')
+silver_output_dir = fixpath(r"C:\SILVER_BC_Cascade\SILVER_Data\Model Results\BC_Cascade_{}".format(scen))
+scen_dir = fixpath(r"C:\Users\smoha\OneDrive - University of Victoria\Project\tasks\linkage_hydro\scen_outputs\BC_cascade_{}".format(scen))
+os.makedirs(scen_dir, exist_ok=True)
+files = os.listdir(silver_output_dir)
+for fname in files:
+    shutil.copy2(os.path.join(silver_output_dir, fname), scen_dir)
+os.chdir(scen_dir)
 
-lmp = True if input('Are you analysing lmp? (y/n)\t') == 'y' else False
+
+lmp = False
+#lmp = True if input('Are you analysing lmp? (y/n)\t') == 'y' else False
 
 extension = 'csv'
 vre_filenames = [i for i in glob.glob('Available_VRE_generation*.{}'.format(extension))]
@@ -108,10 +118,10 @@ if lmp:
     analysis['LMP(mean)'] = lmp_hourly['mean']
 analysis['Load'] = combined_uc.sum(axis=1)
 
-output_dir = fixpath(r"path to dir") #change this to your output directory
-os.chdir(output_dir)
+#output_dir = fixpath(r"C:\Users\smoha\OneDrive - University of Victoria\Project\tasks\linkage_hydro\pre_analysis") #change this to your output directory
+#os.chdir(output_dir)
 
-writer = pd.ExcelWriter(f'analysis_{silver_output_dir.split("/")[6]}.xlsx', engine='xlsxwriter')
+writer = pd.ExcelWriter(f'analysis_{silver_output_dir.split("/")[-1]}.xlsx', engine='xlsxwriter')
 analysis.to_excel(writer, sheet_name="Analysis")
 combined_uc.to_excel(writer, sheet_name="UC Results")
 combined_uc_vre.to_excel(writer, sheet_name="UC VRE Results")
