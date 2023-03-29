@@ -13,8 +13,9 @@ def fixpath(path):
 
 #silver_output_dir = fixpath(input('Insert the path to the folder containing SILVER results:\n'))
 scen = input('Scenario:\n')
+ext = input('Extension for the scenario:\n')
 silver_output_dir = fixpath(r"C:\SILVER_BC_Cascade\SILVER_Data\Model Results\BC_Cascade_{}".format(scen))
-scen_dir = fixpath(r"C:\Users\smoha\OneDrive - University of Victoria\Project\tasks\linkage_hydro\scen_outputs\BC_cascade_{}".format(scen))
+scen_dir = fixpath(r"C:\Users\smoha\OneDrive - University of Victoria\Project\tasks\linkage_hydro\scen_outputs\BC_cascade_{}_{}".format(scen, ext))
 os.makedirs(scen_dir, exist_ok=True)
 files = os.listdir(silver_output_dir)
 for fname in files:
@@ -85,9 +86,23 @@ congestion.drop('max', inplace=True)
 curtailment_rate = pd.DataFrame(index=combined_uc_vre.index)
 curtailment_rate['Total Available Wind'] = combined_available_vre[list(combined_uc.filter(regex='^Wind'))].sum(axis=1)
 curtailment_rate['Total Dispatched Wind'] = combined_uc_vre[list(combined_uc.filter(regex='^Wind'))].sum(axis=1)
-curtailment_rate['Total Curtailed Wind'] = 100*(1-curtailment_rate['Total Dispatched Wind']/curtailment_rate['Total Available Wind'])
+curtailment_rate['Total Curtailed Wind'] = (curtailment_rate['Total Available Wind']-curtailment_rate['Total Dispatched Wind'])
+curtailment_rate['Total Available Solar'] = combined_available_vre[list(combined_uc.filter(regex='^Solar'))].sum(axis=1)
+curtailment_rate['Total Dispatched Solar'] = combined_uc_vre[list(combined_uc.filter(regex='^Solar'))].sum(axis=1)
+curtailment_rate['Total Curtailed Solar'] = (curtailment_rate['Total Available Solar']-curtailment_rate['Total Dispatched Solar'])
+curtailment_rate['Total Available VRE'] = combined_available_vre[list(combined_uc.filter(regex='^Wind|^Solar'))].sum(axis=1)
+curtailment_rate['Total Dispatched VRE'] = combined_uc_vre[list(combined_uc.filter(regex='^Wind|^Solar'))].sum(axis=1)
+curtailment_rate['Total Curtailed VRE'] = (curtailment_rate['Total Available VRE']-curtailment_rate['Total Dispatched VRE'])
+curtailment_rate.loc['curtailed percentage', 'Total Curtailed Wind'] = round(100*curtailment_rate['Total Curtailed Wind'].sum()/curtailment_rate['Total Available Wind'].sum(),3)
+curtailment_rate.loc['curtailed percentage', 'Total Curtailed Solar'] = round(100*curtailment_rate['Total Curtailed Solar'].sum()/curtailment_rate['Total Available Solar'].sum(),3)
+curtailment_rate.loc['curtailed percentage', 'Total Curtailed VRE'] = round(100*curtailment_rate['Total Curtailed VRE'].sum()/curtailment_rate['Total Available VRE'].sum(),3)
 
-curtailment = 100*(1-np.divide(combined_uc_vre, combined_available_vre))
+
+
+curtailment = combined_available_vre - combined_uc_vre
+curtailment.loc['total'] = curtailment.sum()
+curtailment.loc['curtailed percentage'] = round(100*curtailment.loc['total']/combined_available_vre.sum(),3)
+
 curtailment = pd.concat([curtailment, curtailment_rate], axis=1)
 
 curtailment_rate.loc['total'] = curtailment_rate.sum()
@@ -113,10 +128,10 @@ if lmp:
     lmp_hourly['mean'] = lmp_hourly.mean(axis=1)
 
 analysis = pd.DataFrame(index=curtailment_rate.index)
-analysis['Curtailed Wind'] = curtailment_rate['Total Curtailed Wind']
+analysis['Curtailed VRE'] = curtailment_rate['Total Curtailed VRE']
 if lmp:
     analysis['LMP(mean)'] = lmp_hourly['mean']
-analysis['Load'] = combined_uc.sum(axis=1)
+analysis['Load'] = total_dispatch.sum(axis=1)
 
 #output_dir = fixpath(r"C:\Users\smoha\OneDrive - University of Victoria\Project\tasks\linkage_hydro\pre_analysis") #change this to your output directory
 #os.chdir(output_dir)
