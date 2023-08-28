@@ -1,8 +1,8 @@
 from glob import glob
 import os
-import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -18,7 +18,7 @@ pwd = os.path.dirname(cwd)
 
 #dir = 'scen_archive'
 #dir = 'scen_output'
-dir = 'scen_output_badparticip'
+dir = 'scen_output_select'
 os.chdir(pwd)
 iters = glob(f'{dir}/*/', recursive=True)
 
@@ -63,6 +63,8 @@ gen_types = {'Wind':'Wind', 'Solar':'Solar','Biomass':'Biomass', 'NG':'Gas', 'hy
 gen_price = {'Wind':0.00001, 'Solar':.00001,'Biomass':5.06, 'NG':2.67, 'hydro':1.46}
 gen_titles = ['Wind', 'Solar','Biomass', 'Gas', 'Hydro']
 dispatch_iters = pd.DataFrame(columns=iters_list, index=gen_types.values())
+peaks_iters = pd.DataFrame()
+peaks_iters['iters'] = iters_list
 
 
 for index, row in scens.loc[scen_num].iterrows():
@@ -74,6 +76,7 @@ for index, row in scens.loc[scen_num].iterrows():
     total_costs = []
     emissions = []
     wind_outs = []
+    peaks = []
     scen=row['scen']
     os.chdir(scen)
     iters = glob('*/', recursive=True)
@@ -126,6 +129,8 @@ for index, row in scens.loc[scen_num].iterrows():
 
         emission = uc_results[['NG' in s for s in uc_results.index]].sum()*0.655*0.000001
         emissions.append(emission)
+        peak = load_curve.max()
+        peaks.append(peak)
 
         os.chdir(f"{pwd}/{dir}/{scen}")
 
@@ -133,16 +138,19 @@ for index, row in scens.loc[scen_num].iterrows():
         solar_out[scen] = out_vre.iloc[0:1440, 0:16].sum(axis=1)
         wind_avail = curt_det['Total Available Wind']
         wind_avail.dropna(inplace=True)
-        wind_avail = wind_avail + solar_avail
+        wind_avail = wind_avail #+ solar_avail
     else:
         wind_avail = curt_det['Total Available Wind']
         wind_avail.dropna(inplace=True)
     
+    #total_costs[-3] = 2910
+    #total_costs[-2] = 2911
     total_costs[-1] = total_costs[-2] #fixing last value for the reduced load cases
     curts[-1] = curts[-2] #fixing last value for the reduced load cases
     load_curve.iloc[:,-1] = load_curve.iloc[:,-2] #fixing last value for the reduced load cases
     costs_iter[scen] = pd.Series(total_costs)
     curts_iter[scen] = pd.Series(curts)
+    peaks_iters[scen] = pd.Series(peaks)
     #curts_iter.dropna(subset=scen, inplace=True)
     e_sav_iters[scen] = pd.Series(e_savs)
     e_sav_iters.dropna(subset=scen, inplace=True)
@@ -155,7 +163,7 @@ for index, row in scens.loc[scen_num].iterrows():
     analysis_table.index = iters_list
     analysis_table.dropna(axis=0, subset='Wind Output (MWh)', inplace=True)
     
-    desired_range = np.arange(614,686,1).tolist()
+    desired_range = np.arange(144,204,1).tolist()
     load_diff = pd.concat([load_curve.iloc[desired_range,0], load_curve.iloc[desired_range,-1]], axis=1)
     fig, ax = plt.subplots(figsize=(15, 3))
     duration = pd.to_datetime(load_diff.index, format='%Y%m%d.0')
@@ -170,51 +178,60 @@ for index, row in scens.loc[scen_num].iterrows():
                       , loc='lower center', bbox_to_anchor=(0.5, -0.35), ncol=4)    
     plt.xlabel('Time (day h)')
     #plt.xticks(desired_range, rotation=45)
-    plt.ylabel('Load (MW)')
+    plt.ylabel('Demand (MW)')
+    plt.title(f'Load Curve Changes - Scenario: {row["elec_scen"]}, {row["emit_scen"]} - DR Method: {row["dr_method"]} with {row["particip"]}% participation')
     plt.savefig(f'load_curve_changes_{scen}.jpg', dpi=300, bbox_inches='tight')
     plt.close()
 
-    plt.figure(figsize=(15,4))
+    plt.figure(figsize=(15, 4))
     load_curve_iter = sns.lineplot(data = load_curve.iloc[desired_range])
-    load_curve_iter.set(xlabel= "Time (day h)", ylabel= "Load (MW)")
+    load_curve_iter.set(xlabel= "Time (day h)", ylabel= "Demand (MW)")
     load_curve_iter.axes.get_legend().remove()
     handles1, labels1 = load_curve_iter.axes.get_legend_handles_labels()
-    plt.ylim(7000, load_curve_iter.axes.get_ylim()[1])
-    wind_plt = sns.lineplot(data = wind_avail.iloc[desired_range], ax=load_curve_iter.axes.twinx(), color='#84a182', alpha=0.5, label='Available Wind')
+    plt.ylim(7000, max(wind_avail.iloc[desired_range].max()*1.05, load_curve.iloc[desired_range,-1].max()*1.05))
+    wind_plt = sns.lineplot(data = wind_avail.iloc[desired_range], ax=load_curve_iter.axes.twinx(),
+                             color='#84a182', alpha=0.5, label='Available Wind')
+    plt.ylim(7000, max(wind_avail.iloc[desired_range].max()*1.05, load_curve.iloc[desired_range,-1].max()*1.05))
+    plt.ylabel('Available Wind (MW)')
+    handles2, labels2 = wind_plt.axes.get_legend_handles_labels()
+    
     plt.fill_between(wind_avail.iloc[desired_range].index, wind_avail.iloc[desired_range].values, load_curve.iloc[desired_range,-1].values
                      , where=(wind_avail.iloc[desired_range].values>load_curve.iloc[desired_range,-1].values), interpolate=True, color='#ebfa6b', alpha=0.2)
     plt.fill_between(wind_avail.iloc[desired_range].index, wind_avail.iloc[desired_range].values, alpha=0.1, color='#84a182')
-    handles2, labels2 = wind_plt.axes.get_legend_handles_labels()
-    #handles2, labels1 = [Line2D([0], [0], color="#84a182", lw=6, alpha=0.2)], ['Available Wind']
-    plt.ylim(7000, load_curve_iter.axes.get_ylim()[1])
-    plt.ylabel('Available Wind (MW)')
+    handles1.append(mpatches.Patch(color='#ebfa6b', alpha=0.2))
+    labels1.append('Curtailed Wind')
+    handles1.append(mpatches.Patch(color='#84a182', alpha=0.1))
+    labels1.append('Dispatched Wind')
     plt.legend(handles1+handles2, labels1+labels2, loc='lower center', bbox_to_anchor=(0.5, -0.27), ncol=len(iters_list)+1)
+    plt.title(f'Load Curve Evolution - Scenario: {row["elec_scen"]}, {row["emit_scen"]} - DR Method: {row["dr_method"]} with {row["particip"]}% participation')
     plt.savefig(f'load_curves_{scen}.jpg', dpi=300, bbox_inches= 'tight')
     plt.close()
 
     wind_avail_cust = wind_avail.iloc[desired_range]
     fig, ax1 = plt.subplots(figsize=(11, 5))
     wind_vs_load = sns.lineplot(data=load_curve.iloc[desired_range,-1], color='g', ax=ax1)
-    wind_vs_load.set(xlabel='Time (h)', ylabel='Load (MW)')
+    wind_vs_load.set(xlabel='Time (h)', ylabel='Demand (MW)')
     plt.ylim(bottom=load_curve.iloc[desired_range,-1].min()-500, top=wind_avail_cust.max()+500)
     ax2 = ax1.twinx()
     sns.lineplot(data=wind_avail_cust, color='b', alpha = 0.5, ax=ax2)
     plt.ylabel('Total Available Wind (MW)')
     plt.ylim(bottom=load_curve.iloc[desired_range,-1].min()-500, top=wind_avail_cust.max()+500)
-    wind_vs_load.legend(handles=[Line2D([], [], marker='_', color="g", label='Load (MW)'), Line2D([], [], marker='_', color="b", label='Total Available Wind (MW)')])
+    wind_vs_load.legend(handles=[Line2D([], [], marker='_', color="g", label='Demand (MW)'), Line2D([], [], marker='_', color="b", label='Total Available Wind (MW)')])
     plt.savefig(f'wind_vs_load_{scen}.jpg', dpi=300, bbox_inches='tight')
     plt.close()
 
     plt.figure(figsize=(8,5))
     knw_curts = curts_iter[scen].dropna()
     knw_costs = costs_iter[scen].dropna()
-    x=np.arange(1,len(knw_curts)+1)
+    x=np.arange(1,len(knw_curts)+1, dtype=int)
     crt_vs = sns.lineplot(x=x, y=knw_curts, color='g', marker='o')
-    plt.ylim(bottom=curts_iter[scen].min()*0.98, top=curts_iter[scen].max()*1.02)
+    plt.ylim(bottom=curts_iter[scen].min()-0.5, top=curts_iter[scen].max()+0.5)
     crt_vs.set(xlabel='Iterations', ylabel='Curtailed Wind Generation (%)')
     sns.lineplot(x=x, y=knw_costs, color='b', ax=crt_vs.axes.twinx(), marker='o')
-    plt.ylim(bottom=costs_iter[scen].min()*0.99, top=costs_iter[scen].max()*1.01)
-    plt.ylabel('Yearly Operational Costs (M$)')
+    plt.ylim(bottom=costs_iter[scen].min()*0.95, top=costs_iter[scen].max()*1.05)
+    plt.ylabel('Annual Operational Costs (M$)')
+    crt_vs.set(xticks=list(range(1,len(knw_curts)+1)))
+    plt.title(f'Cost vs Curtailment - Scenario: {row["elec_scen"]}, {row["emit_scen"]} - DR Method: {row["dr_method"]} with 20% participation')
     crt_vs.legend(handles=[Line2D([], [], marker='_', color="g", label='Curtailment'), Line2D([], [], marker='_', color="b", label='Operational Costs')])
     plt.savefig(f'cost_vs_curt_{scen}.jpg', dpi=300, bbox_inches='tight')
     plt.close()
@@ -250,7 +267,7 @@ for index, row in scens.loc[scen_num].iterrows():
     plt.close()
 
     costs_scen = sns.lineplot(data = costs_iter, x='iters', y=scen)
-    costs_scen.set(xlabel= "Iterations", ylabel= "Total Yearly Operational Costs (Thousand$)")
+    costs_scen.set(xlabel= "Iterations", ylabel= "Total Annual Operational Costs (Thousand$)")
     plt.savefig(f'costs_{scen}.jpg', dpi=300, bbox_inches= 'tight')
     plt.close()
 
@@ -274,9 +291,10 @@ for index, row in scens.loc[scen_num].iterrows():
 
     analysis_table.iloc[-1, :] = analysis_table.iloc[-2, :].astype('float64')
     last_iter = analysis_table.iloc[-1,:]
+    #analysis_table.loc['Peaks (MW)'] = peaks_iters
     analysis_table.loc['Lowest Cost Diff'] = analysis_table.loc[analysis_table['Operational Costs (M$)'].idxmin()]-analysis_table.iloc[0]
     analysis_table.loc['Diffrence'] = last_iter-analysis_table.iloc[0]
-    analysis_table.loc['% Diffrence'] = (last_iter-analysis_table.iloc[0])/analysis_table.iloc[0]
+    analysis_table.loc['% Difference'] = round(100*(last_iter-analysis_table.iloc[0])/analysis_table.iloc[0],2)
     analysis_table.loc['Best Curtailment Diff'] = analysis_table.loc[analysis_table['Wind Output (MWh)'].idxmax()]-analysis_table.iloc[0]
     writer = pd.ExcelWriter(f'analysis_table_{scen}.xlsx', engine='xlsxwriter')
     analysis_table.to_excel(writer, sheet_name='Analysis Table')
@@ -287,7 +305,9 @@ for index, row in scens.loc[scen_num].iterrows():
     os.chdir(f'{pwd}/{dir}')
 
     analysis_scen.loc[scen,'Savings (M$)'] = -analysis_table.loc['Lowest Cost Diff', 'Operational Costs (M$)']
+    analysis_scen.loc[scen,'Savings (%)'] = -analysis_table.loc['% Difference', 'Operational Costs (M$)']
     analysis_scen.loc[scen,'Dispatched Wind (MWh)'] = analysis_table.loc['Best Curtailment Diff', 'Wind Output (MWh)']
+    analysis_scen.loc[scen,'Dispatched Wind (%)'] = round(100*analysis_table.loc['Best Curtailment Diff', 'Wind Output (MWh)']/wind_avail.sum(),2)
     analysis_scen.loc[scen,'Emission Reduction (Mton CO2eq)'] = analysis_table.loc['Lowest Cost Diff', 'Emissions (MTCO2e)']
     analysis_scen.loc[scen,'Savings in Household Energy Costs (M$)'] = -analysis_table.loc['Lowest Cost Diff', 'Household Energy Expenses (M$)']
 
@@ -311,6 +331,7 @@ if len(scen_num) > 1:
 
     #Manual fix for wind and costs plot for ELEC_zeroemit scenario
     #analysis_scen['Savings (M$)'] = [17.85 ,26.62, 36.8699999999999, 40.3000000000002]
+    #analysis_scen['Dispatched Wind (MWh)'] = [6945.33703563734, 10377.91143372282, 19354.395728424, 21682.7848449796]
     #analysis_scen.at['ELEC_zeroemit_15%particip_DLC', 'Dispatched Wind (MWh)'] = 386946.938791633
     
     all_scens = scens.loc[scen_num]
@@ -320,10 +341,11 @@ if len(scen_num) > 1:
     plt.ylabel('Operational Costs Savings (M$)')
     plt.ylim(bottom=0.9*analysis_scen['Savings (M$)'].min(), top=1.1*analysis_scen['Savings (M$)'].max())
     sns.lineplot(x='Participation (%)', y='Dispatched Wind (MWh)', data=analysis_scen, marker='o', ax=cost_and_winds.axes.twinx(), color='r')
-    plt.ylabel('Improved Wind Integration (MWh)')
+    plt.ylabel('Dispatched Wind (MWh)')
     plt.ylim(bottom=0.9*analysis_scen['Dispatched Wind (MWh)'].min(), top=1.1*analysis_scen['Dispatched Wind (MWh)'].max())
     plt.xticks(analysis_scen['Participation (%)'])
-    cost_and_winds.legend(handles=[Line2D([], [], marker='_', color="b", label='Operational Costs Savings (M$)'), Line2D([], [], marker='_', color="r", label='Improved Wind Integration (MWh)')])
+    cost_and_winds.legend(handles=[Line2D([], [], marker='_', color="b", label='Operational Costs Savings (M$)'), Line2D([], [], marker='_', color="r", label='Dispatched Wind (MWh)')])
+    plt.title(f'Scenario: {scens.iat[scen_num[-1],1]}, {scens.iat[scen_num[-1],2]} - DR Method: {scens.iat[scen_num[-1],4]}')
     plt.savefig(f"costs_and_winds_{scens.iat[scen_num[-1],1]}_{scens.iat[scen_num[-1],2]}_{scens.iat[scen_num[-1],4]}.jpg", dpi=300, bbox_inches= 'tight')
     plt.close()
 
